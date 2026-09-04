@@ -99,7 +99,9 @@ function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
 function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: () => void; onMsg: (m: string) => void }) {
   const [repos, setRepos] = useState<RepoView[]>([]);
   const [filter, setFilter] = useState('');
-  const [nId, setNId] = useState(''); const [nPath, setNPath] = useState('');
+  const [nId, setNId] = useState(''); const [nPath, setNPath] = useState(''); const [nIdT, setNIdT] = useState(false);
+  const [iIdT, setIIdT] = useState(false);
+  const idOf = (p: string) => p.trim().replace(/\/$/, '').replace(/\/skills$/, '').split(/[/\\]/).filter(Boolean).pop() ?? '';
   const [iId, setIId] = useState(''); const [iPath, setIPath] = useState(''); const [iDet, setIDet] = useState<{ layout: string; count: number; root?: string } | null>(null); const [iLayout, setILayout] = useState('flat'); const [impNote, setImpNote] = useState('');
   const [imp, setImp] = useState<Record<string, string>>({});
   const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
@@ -115,9 +117,9 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
     const s = state?.skills.find((x) => x.id === id); if (!s) return;
     setTags(id, s.tags.filter((t) => t !== tag));
   };
-  const createRepo = async () => { if (!nId || !nPath) return; await api('/repos', { method: 'POST', body: JSON.stringify({ id: nId, path: nPath, layout: 'flat' }) }); setNId(''); setNPath(''); refreshRepos(); };
+  const createRepo = async () => { const id = nId.trim() || idOf(nPath); if (!id || !nPath.trim()) { onMsg('请填写仓库路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id, path: nPath.trim(), layout: 'flat' }) }); setNId(''); setNPath(''); setNIdT(false); refreshRepos(); } catch (e) { onMsg((e as Error).message); } };
   const detect = async () => { if (!iPath.trim()) { setImpNote('请先填写目录路径'); return; } setImpNote('识别中…'); setIDet(null); try { const r = await api<{ layout: string; count: number; root: string }>('/repos/detect', { method: 'POST', body: JSON.stringify({ path: iPath.trim() }) }); setIDet(r); setILayout(r.layout); setImpNote(r.count ? `已识别 <b>${r.layout}</b> 布局，含 ${r.count} 个 skill` : '该目录未发现 skill，请确认路径'); } catch (e) { setImpNote((e as Error).message); } };
-  const importRepo = async () => { if (!iDet) { setImpNote('请先点击「识别布局」并确认后再导入'); return; } if (!iId.trim() || !iPath.trim()) { setImpNote('请填写仓库 id 与路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id: iId.trim(), path: iPath.trim(), layout: iLayout, root: iDet.root }) }); onMsg(`已导入仓库 ${iId.trim()}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIDet(null); setImpNote(''); refreshRepos(); } catch (e) { setImpNote((e as Error).message); } };
+  const importRepo = async () => { if (!iDet) { setImpNote('请先点击「识别布局」并确认后再导入'); return; } const id = iId.trim() || idOf(iPath); if (!id || !iPath.trim()) { setImpNote('请填写目录路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id, path: iPath.trim(), layout: iLayout, root: iDet.root }) }); onMsg(`已导入仓库 ${id}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIIdT(false); setIDet(null); setImpNote(''); refreshRepos(); } catch (e) { setImpNote((e as Error).message); } };
   const runImp = async (repoId: string) => {
     const dirs = (imp[repoId] ?? '').split('\n').map((x) => x.trim()).filter(Boolean); if (!dirs.length) return;
     const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId }) });
@@ -144,16 +146,16 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
         ))}
         <div className="formblock">
           <div className="formline">
-            <input className="field" style={{ width: 100 }} placeholder="id" value={nId} onChange={(e) => setNId(e.target.value)} />
-            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（新建 → 标准 flat 布局）" value={nPath} onChange={(e) => setNPath(e.target.value)} />
-            <button className="btn btn--ghost" onClick={() => pickDir(setNPath)}>📁 文件夹…</button>
+            <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={nId} onChange={(e) => { setNId(e.target.value); setNIdT(true); }} />
+            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（可留空取目录名，新建 → 标准 flat 布局）" value={nPath} onChange={(e) => { setNPath(e.target.value); if (!nIdT) setNId(idOf(e.target.value)); }} />
+            <button className="btn btn--ghost" onClick={() => pickDir((v) => { setNPath(v); if (!nIdT) setNId(idOf(v)); })}>📁 文件夹…</button>
             <button className="btn btn--primary" onClick={createRepo}>＋ 新建仓库</button>
           </div>
           <div className="panel__hint" style={{ marginTop: 12, marginBottom: 8 }}>导入现有目录 / 第三方库　（步骤1：识别布局　→　步骤2：确认并导入）</div>
           <div className="formline">
-            <input className="field" style={{ width: 100 }} placeholder="id" value={iId} onChange={(e) => setIId(e.target.value)} />
-            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="已有 skill 的目录路径" value={iPath} onChange={(e) => { setIPath(e.target.value); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } }} />
-            <button className="btn btn--ghost" onClick={() => pickDir((v) => { setIPath(v); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } })}>📁 文件夹…</button>
+            <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={iId} onChange={(e) => { setIId(e.target.value); setIIdT(true); }} />
+            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="已有 skill 的目录路径" value={iPath} onChange={(e) => { setIPath(e.target.value); if (!iIdT) setIId(idOf(e.target.value)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } }} />
+            <button className="btn btn--ghost" onClick={() => pickDir((v) => { setIPath(v); if (!iIdT) setIId(idOf(v)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } })}>📁 文件夹…</button>
             <button className="btn btn--primary" style={{ fontWeight: 700 }} onClick={detect}>① 识别布局</button>
           </div>
           <div className="formline" style={{ marginTop: 8 }}>
