@@ -12,6 +12,7 @@ import { previewGroups, applyAdoption } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
 import { importDirs } from '../core/import.js';
 import { diagnose } from '../core/diagnose.js';
+import { pickDirectory } from '../core/picker.js';
 import { Repo, ForeignSource } from '../config/types.js';
 
 export function makeRouter(cfg: ConfigStore): Router {
@@ -28,6 +29,12 @@ export function makeRouter(cfg: ConfigStore): Router {
       tags: cfg.data.skillMeta[s.id]?.tags ?? [],
     }));
     res.json({ activeAgents: cfg.data.activeAgents, skills, presets: cfg.data.presets });
+  });
+
+  // ---- filesystem ----
+  r.post('/filesystem/pick', (_req, res) => {
+    try { res.json({ path: pickDirectory() }); }
+    catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
 
   // ---- repos ----

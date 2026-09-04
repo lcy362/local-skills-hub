@@ -80,6 +80,13 @@ export default function App() {
   );
 }
 
+async function pickDir(set: (v: string) => void) {
+  try {
+    const r = await api<{ path: string }>('/filesystem/pick', { method: 'POST' });
+    if (r.path) set(r.path);
+  } catch (e) { window.alert((e as Error).message); }
+}
+
 function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
   switch (t) {
     case 'library': return `${s?.skills.length ?? 0} 个 skill · ${new Set(s?.skills.map((x) => x.source)).size ?? 0} 个来源`;
@@ -133,6 +140,8 @@ function QuickTag({ onAdd }: { onAdd: (t: string) => void }) {
 
 /* ================= Agents ================= */
 function AgentsView({ agents, onLoad }: { agents: AgentView[]; onLoad: () => void }) {
+  const [only, setOnly] = useState<'all' | 'detected'>('all');
+  const shown = only === 'all' ? agents : agents.filter((a) => a.installed);
   const setActive = async (key: string) => {
     const cur = await api<string[]>('/activeAgents');
     const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
@@ -145,9 +154,13 @@ function AgentsView({ agents, onLoad }: { agents: AgentView[]; onLoad: () => voi
     <div className="panel">
       <div className="panel__head">
         <h2 className="panel__title">Agents</h2>
-        <span className="panel__hint">活跃 {agents.filter((a) => a.active).length} / 内建 {agents.length}</span>
+        <span className="panel__hint">活跃 {agents.filter((a) => a.active).length} · 已检测 {agents.filter((a) => a.installed).length} / 内建 {agents.length}</span>
+        <div className="panel__actions">
+          <button className={`btn btn--sm${only === 'all' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('all')}>全部</button>
+          <button className={`btn btn--sm${only === 'detected' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('detected')}>已检测 {agents.filter((a) => a.installed).length}</button>
+        </div>
       </div>
-      {agents.map((a) => (
+      {shown.map((a) => (
         <div className={`row${a.active ? ' is-active' : ''}`} key={a.key}>
           <div className="row__main">
             <div className="row__title">
@@ -253,6 +266,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
       <div className="panel__head"><h2 className="panel__title">项目级 Skill</h2><span className="panel__hint">标签关联 · 复制本体入 .agents</span></div>
       <div className="formline">
         <input className="field" style={{ flex: 1, minWidth: 240 }} placeholder="项目绝对路径" value={path} onChange={(e) => setPath(e.target.value)} />
+        <button className="btn btn--ghost" onClick={() => pickDir((v) => { setPath(v); })} title="系统选择文件夹">📁 文件夹…</button>
         <input className="field" style={{ width: 180 }} placeholder="标签(逗号分隔)" value={tag} onChange={(e) => setTag(e.target.value)} />
         <button className="btn btn--primary" onClick={add}>登记项目</button>
       </div>
@@ -375,6 +389,7 @@ function SettingsView({ onMsg }: { onMsg: (m: string) => void }) {
             <input className="field" style={{ width: 110 }} placeholder="id" value={newId} onChange={(e) => setNewId(e.target.value)} />
             <input className="field" style={{ flex: 1, minWidth: 200 }} placeholder="路径 (含 skills/)"
               value={newPath} onChange={(e) => setNewPath(e.target.value)} />
+            <button className="btn btn--ghost" onClick={() => pickDir((v) => setNewPath(v))} title="系统选择文件夹">📁 文件夹…</button>
             <select className="field" value={newLayout} onChange={(e) => setNewLayout(e.target.value)}>
               <option value="auto">auto</option><option value="flat">flat</option><option value="nested">nested</option>
             </select>
@@ -395,6 +410,7 @@ function SettingsView({ onMsg }: { onMsg: (m: string) => void }) {
           <div className="formline">
             <input className="field" style={{ width: 120 }} placeholder="名称" value={newId} onChange={(e) => setNewId(e.target.value)} />
             <input className="field" style={{ flex: 1, minWidth: 200 }} placeholder="路径" value={newPath} onChange={(e) => setNewPath(e.target.value)} />
+            <button className="btn btn--ghost" onClick={() => pickDir((v) => setNewPath(v))} title="系统选择文件夹">📁 文件夹…</button>
             <button className="btn btn--primary" onClick={() => addRepo('source')}>＋ 来源</button>
           </div>
         </div>
