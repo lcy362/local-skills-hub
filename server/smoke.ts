@@ -84,3 +84,17 @@ console.log(isLink && fs.readdirSync(link).includes('SKILL.md') ? '✅ 最小闭
   if (fs.existsSync(ag) && fs.readdirSync(ag).includes('alpha')) console.log('✅ 项目级同步通过');
   else console.log('❌ 项目级同步失败');
 }
+
+// ---- 批次3: 批量导入 + 诊断 smoke ----
+{
+  const { importDirs } = await import('./src/core/import.js');
+  const ext2Dir = path.join(base, 'ext2');
+  mkSkill(path.join(ext2Dir, 'skills', 'viz'), 'echarts');
+  mkSkill(path.join(ext2Dir, 'skills', 'viz'), 'd3');
+  const imp = importDirs(store, [ext2Dir], 'default');
+  console.log('\n[import] =', JSON.stringify(imp, null, 2));
+  const { diagnose } = await import('./src/core/diagnose.js');
+  const diag = diagnose(store);
+  console.log('[diagnose] 项数 =', diag.items.length, '| config =', diag.config);
+  console.log('仓库含新技能 echarts =', fs.existsSync(path.join(repoDir, 'skills', 'echarts', 'SKILL.md')));
+}

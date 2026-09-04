@@ -10,6 +10,8 @@ import * as active from '../core/active.js';
 import { syncActive } from '../core/sync.js';
 import { previewGroups, applyAdoption } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
+import { importDirs } from '../core/import.js';
+import { diagnose } from '../core/diagnose.js';
 import { Repo, ForeignSource } from '../config/types.js';
 
 export function makeRouter(cfg: ConfigStore): Router {
@@ -160,6 +162,14 @@ export function makeRouter(cfg: ConfigStore): Router {
     cfg.save();
     res.json(result);
   });
+
+  // ---- batch import / diagnose ----
+  r.post('/import', (req, res) => {
+    const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : [];
+    const repoId = req.body?.repoId;
+    res.json(importDirs(cfg, dirs, repoId));
+  });
+  r.get('/diagnose', (_req, res) => res.json(diagnose(cfg)));
 
   // ---- sync ----
   r.post('/sync', (req, res) => {
