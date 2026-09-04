@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, IntegrateGroup, Candidate, DiagItem, ProjectSyncResult, ImportResult } from './api';
 
-type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'integrate' | 'diag' | 'settings';
+type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'integrate' | 'diag';
 
 const NAV: { id: Tab; label: string }[] = [
   { id: 'library', label: '资产库' },
@@ -10,7 +10,6 @@ const NAV: { id: Tab; label: string }[] = [
   { id: 'projects', label: '项目' },
   { id: 'integrate', label: '收编' },
   { id: 'diag', label: '诊断' },
-  { id: 'settings', label: '设置' },
 ];
 
 export default function App() {
@@ -67,13 +66,12 @@ export default function App() {
         </header>
         <div className="content">
           {msg && <div className="msgbar">{msg}</div>}
-          {tab === 'library' && <Library state={state} onLoad={reload} />}
+          {tab === 'library' && <Library state={state} onLoad={reload} onMsg={setMsg} />}
           {tab === 'agents' && <AgentsView agents={agents} onLoad={reload} />}
           {tab === 'presets' && <PresetsView state={state} onLoad={reload} />}
           {tab === 'projects' && <ProjectsView onMsg={setMsg} />}
           {tab === 'integrate' && <IntegrateView onMsg={setMsg} />}
           {tab === 'diag' && <DiagView />}
-          {tab === 'settings' && <SettingsView onMsg={setMsg} />}
         </div>
       </main>
     </div>
@@ -98,7 +96,14 @@ function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
 }
 
 /* ================= Library ================= */
-function Library({ state, onLoad }: { state: StateView | null; onLoad: () => void }) {
+function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: () => void; onMsg: (m: string) => void }) {
+  const [repos, setRepos] = useState<RepoView[]>([]);
+  const [filter, setFilter] = useState('');
+  const [nId, setNId] = useState(''); const [nPath, setNPath] = useState('');
+  const [iId, setIId] = useState(''); const [iPath, setIPath] = useState(''); const [iDet, setIDet] = useState<{ layout: string; count: number; root?: string } | null>(null); const [iLayout, setILayout] = useState('flat');
+  const [imp, setImp] = useState<Record<string, string>>({});
+  const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
+  useEffect(() => { api<RepoView[]>('/repos').then(setRepos); }, []);
   const setTags = async (id: string, tags: string[]) => {
     await api(`/skills/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ tags }) }); onLoad();
   };
@@ -110,12 +115,64 @@ function Library({ state, onLoad }: { state: StateView | null; onLoad: () => voi
     const s = state?.skills.find((x) => x.id === id); if (!s) return;
     setTags(id, s.tags.filter((t) => t !== tag));
   };
-  if (!state || state.skills.length === 0) return <div className="empty">仓库为空。到「设置」添加仓库，再到「收编」合并现有 skill。</div>;
+  const createRepo = async () => { if (!nId || !nPath) return; await api('/repos', { method: 'POST', body: JSON.stringify({ id: nId, path: nPath, layout: 'flat' }) }); setNId(''); setNPath(''); refreshRepos(); };
+  const detect = async () => { if (!iPath) return; setIDet(null); try { const r = await api<{ layout: string; count: number; root: string }>('/repos/detect', { method: 'POST', body: JSON.stringify({ path: iPath }) }); setIDet(r); setILayout(r.layout); } catch (e) { window.alert((e as Error).message); } };
+  const importRepo = async () => { if (!iId || !iPath) return; await api('/repos', { method: 'POST', body: JSON.stringify({ id: iId, path: iPath, layout: iLayout, root: iDet?.root }) }); onMsg(`已导入仓库 ${iId}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIDet(null); refreshRepos(); };
+  const runImp = async (repoId: string) => {
+    const dirs = (imp[repoId] ?? '').split('\n').map((x) => x.trim()).filter(Boolean); if (!dirs.length) return;
+    const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId }) });
+    onMsg(r.map((x) => `${x.source}：导入 ${x.imported.length} · 跳过 ${x.skipped.length}`).join('  ·  ')); refreshRepos();
+  };
+  const skills = state?.skills ?? [];
+  const filtered = filter ? skills.filter((s) => s.source === filter) : skills;
+  const sources = Array.from(new Set(skills.map((s) => s.source)));
   return (
-    <div className="grid2">
-      <div>
-        <div className="panel__hint" style={{ marginBottom: 8 }}>{state.skills.length} SKILLS</div>
-        {state.skills.map((s) => (
+    <>
+      <div className="panel">
+        <div className="panel__head"><h2 className="panel__title">仓库</h2><span className="panel__hint">SKILL 唯一事实源 · 新建用标准布局，导入自动识别</span></div>
+        {repos.map((r) => (
+          <div style={{ marginBottom: 10 }} key={r.id}>
+            <div className="row">
+              <div className="row__main"><div className="row__title">{r.id}<span className="badge badge--off">[{r.layout}]</span></div><div className="row__meta">{r.path}</div></div>
+              <div className="row__actions"><button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); refreshRepos(); }}>删除</button></div>
+            </div>
+            <div className="formline" style={{ marginTop: 6 }}>
+              <textarea className="field field--area" style={{ flex: 1, minHeight: 54 }} placeholder={`向 ${r.id} 导入其他目录的 skill（每行一个目录，可含子分类）`} value={imp[r.id] ?? ''} onChange={(e) => setImp({ ...imp, [r.id]: e.target.value })} />
+              <button className="btn btn--primary" onClick={() => runImp(r.id)}>导入 skill</button>
+            </div>
+          </div>
+        ))}
+        <div className="formblock">
+          <div className="formline">
+            <input className="field" style={{ width: 100 }} placeholder="id" value={nId} onChange={(e) => setNId(e.target.value)} />
+            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（新建 → 标准 flat 布局）" value={nPath} onChange={(e) => setNPath(e.target.value)} />
+            <button className="btn btn--ghost" onClick={() => pickDir(setNPath)}>📁 文件夹…</button>
+            <button className="btn btn--primary" onClick={createRepo}>＋ 新建仓库</button>
+          </div>
+          <div className="formline">
+            <input className="field" style={{ width: 100 }} placeholder="id" value={iId} onChange={(e) => setIId(e.target.value)} />
+            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="导入现有目录 / 第三方库" value={iPath} onChange={(e) => setIPath(e.target.value)} />
+            <button className="btn btn--ghost" onClick={() => pickDir(setIPath)}>📁 文件夹…</button>
+            <button className="btn btn--ghost" onClick={detect}>识别布局</button>
+            <select className="field" style={{ width: 90 }} value={iLayout} onChange={(e) => setILayout(e.target.value)}>
+              <option value="flat">flat</option><option value="nested">nested</option>
+            </select>
+            <button className="btn btn--primary" onClick={importRepo}>导入为仓库</button>
+          </div>
+          {iDet && <div className="panel__hint" style={{ marginTop: 6 }}>识别：<b>{iDet.layout}</b>，含 <b>{iDet.count}</b> 个 skill{iDet.layout !== iLayout ? `（已按你改为 ${iLayout}）` : ''}</div>}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">资产 {filtered.length}</h2>
+          <select className="field" style={{ width: 160 }} value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="">全部来源</option>
+            {sources.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        {filtered.length === 0 && <div className="empty">暂无 skill。先在顶部新建或导入仓库；已有 skill 可用「收编」合并进来。</div>}
+        {filtered.map((s) => (
           <div className="row" key={s.id}>
             <div className="row__main">
               <div className="row__title">{s.name}<span className="badge badge--off">@{s.source}</span></div>
@@ -128,9 +185,10 @@ function Library({ state, onLoad }: { state: StateView | null; onLoad: () => voi
           </div>
         ))}
       </div>
-    </div>
+    </>
   );
 }
+
 function QuickTag({ onAdd }: { onAdd: (t: string) => void }) {
   const [v, setV] = useState('');
   return <input className="field" style={{ width: 90 }} placeholder="+标签" value={v}
@@ -352,78 +410,6 @@ function DiagView() {
           <span className={`status-${it.status}`}>{it.message}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-/* ================= Settings ================= */
-function SettingsView({ onMsg }: { onMsg: (m: string) => void }) {
-  const [repos, setRepos] = useState<RepoView[]>([]);
-  const [sources, setSources] = useState<SourceView[]>([]);
-  const [newId, setNewId] = useState(''); const [newPath, setNewPath] = useState(''); const [newLayout, setNewLayout] = useState('auto');
-  const [impDirs, setImpDirs] = useState(''); const [impRepo, setImpRepo] = useState('');
-  useEffect(() => { api<RepoView[]>('/repos').then(setRepos); api<SourceView[]>('/sources').then(setSources); }, []);
-  const addRepo = async (kind: 'repo' | 'source') => {
-    if (!newId || !newPath) return;
-    if (kind === 'repo') {
-      await api('/repos', { method: 'POST', body: JSON.stringify({ id: newId, path: newPath, layout: newLayout }) });
-      api<RepoView[]>('/repos').then(setRepos);
-    } else {
-      await api('/sources', { method: 'POST', body: JSON.stringify({ id: newId + '-ext', name: newId, path: newPath, layout: 'nested', linked: true }) });
-      api<SourceView[]>('/sources').then(setSources);
-    }
-    setNewId(''); setNewPath('');
-  };
-  const runImport = async () => {
-    const dirs = impDirs.split('\n').map((x) => x.trim()).filter(Boolean);
-    const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId: impRepo || undefined }) });
-    onMsg(r.map((x) => `${x.source}：导入 ${x.imported.length} · 跳过 ${x.skipped.length}`).join('  ·  '));
-  };
-  return (
-    <div className="grid2">
-      <div className="panel">
-        <div className="panel__head"><h2 className="panel__title">仓库</h2><span className="panel__hint">SKILL 本体唯一事实源</span></div>
-        {repos.map((r) => <div className="row" key={r.id}><div className="row__main"><div className="row__title">{r.id}<span className="badge badge--off">[{r.layout}]</span></div><div className="row__meta">{r.path}</div></div><div className="row__actions"><button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); api<RepoView[]>('/repos').then(setRepos); }}>删除</button></div></div>)}
-        <div className="formblock">
-          <div className="formline">
-            <input className="field" style={{ width: 110 }} placeholder="id" value={newId} onChange={(e) => setNewId(e.target.value)} />
-            <input className="field" style={{ flex: 1, minWidth: 200 }} placeholder="路径 (含 skills/)"
-              value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-            <button className="btn btn--ghost" onClick={() => pickDir((v) => setNewPath(v))} title="系统选择文件夹">📁 文件夹…</button>
-            <select className="field" value={newLayout} onChange={(e) => setNewLayout(e.target.value)}>
-              <option value="auto">auto</option><option value="flat">flat</option><option value="nested">nested</option>
-            </select>
-            <button className="btn btn--primary" onClick={() => addRepo('repo')}>＋ 仓库</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel__head"><h2 className="panel__title">外部来源</h2><span className="panel__hint">读取异构库 · 只读关联</span></div>
-        {sources.map((s) => (
-          <div className="row" key={s.id}>
-            <div className="row__main"><div className="row__title">{s.name}{s.linked && <span className="badge badge--state">只读</span>}</div><div className="row__meta">{s.path} · [{s.layout}]</div></div>
-            <div className="row__actions"><button className="btn btn--danger btn--sm" onClick={async () => { await api(`/sources/${s.id}`, { method: 'DELETE' }); api<SourceView[]>('/sources').then(setSources); }}>删除</button></div>
-          </div>
-        ))}
-        <div className="formblock">
-          <div className="formline">
-            <input className="field" style={{ width: 120 }} placeholder="名称" value={newId} onChange={(e) => setNewId(e.target.value)} />
-            <input className="field" style={{ flex: 1, minWidth: 200 }} placeholder="路径" value={newPath} onChange={(e) => setNewPath(e.target.value)} />
-            <button className="btn btn--ghost" onClick={() => pickDir((v) => setNewPath(v))} title="系统选择文件夹">📁 文件夹…</button>
-            <button className="btn btn--primary" onClick={() => addRepo('source')}>＋ 来源</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="panel">
-        <div className="panel__head"><h2 className="panel__title">批量导入</h2><span className="panel__hint">嵌套目录 → 仓库</span></div>
-        <textarea className="field field--area" style={{ width: '100%', minHeight: 90 }} placeholder="每行一个 skill 目录（可含子分类）" value={impDirs} onChange={(e) => setImpDirs(e.target.value)} />
-        <div className="formline">
-          <input className="field" style={{ width: 180 }} placeholder="目标仓库 id（留空=第一个）" value={impRepo} onChange={(e) => setImpRepo(e.target.value)} />
-          <button className="btn btn--primary" onClick={runImport}>导入</button>
-        </div>
-      </div>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { ConfigStore } from '../config/store.js';
 import { listAgents } from '../core/agents.js';
-import { scanAll } from '../core/scanner.js';
+import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
 import { syncActive } from '../core/sync.js';
@@ -40,10 +40,10 @@ export function makeRouter(cfg: ConfigStore): Router {
   // ---- repos ----
   r.get('/repos', (_req, res) => res.json(cfg.data.repos));
   r.post('/repos', (req, res) => {
-    const { id, path: p, layout } = req.body as Repo;
+    const { id, path: p, layout, root } = req.body as Repo;
     if (!id || !p) return res.status(400).json({ error: 'id/path required' });
     if (cfg.data.repos.some((x) => x.id === id)) return res.status(409).json({ error: `repo ${id} 已存在` });
-    cfg.data.repos.push({ id, path: p, layout: layout ?? 'flat' });
+    cfg.data.repos.push({ id, path: p, layout: layout ?? 'flat', root: root ?? undefined });
     cfg.save();
     res.json(cfg.data.repos);
   });
@@ -58,7 +58,15 @@ export function makeRouter(cfg: ConfigStore): Router {
     res.json(scanAll([repo], []));
   });
 
+  r.post('/repos/detect', (req, res) => {
+    const { path: p } = req.body ?? {};
+    if (!p) return res.status(400).json({ error: 'path required' });
+    try { res.json(detectLayoutAbs(p)); }
+    catch (e) { res.status(500).json({ error: String(e) }); }
+  });
+
   // ---- foreign sources ----
+
   r.get('/sources', (_req, res) => res.json(cfg.data.foreignSources));
   r.post('/sources', (req, res) => {
     const body = req.body as ForeignSource;

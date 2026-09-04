@@ -37,8 +37,30 @@ export function scanDir(root: string, source: string, layout: Layout): Skill[] {
   return out;
 }
 
+/**
+ * 自动识别一个（已存在的）skill 目录的布局形式。
+ * 优先看 <path>/skills 子目录（仓库惯例），其次看 path 本身。
+ * 直接子目录含 SKILL.md → flat；仅深层含 → nested；无技能 → 默认 flat（标准）。
+ */
+export function detectLayoutAbs(absPath: string): { layout: 'flat' | 'nested'; count: number; root: string } {
+  const dirs = fs.existsSync(absPath) && fs.statSync(absPath).isDirectory() ? [absPath] : [];
+  const skillsChild = path.join(absPath, 'skills');
+  if (dirs.length && fs.existsSync(skillsChild) && fs.statSync(skillsChild).isDirectory()) dirs.push(skillsChild);
+  for (const root of dirs) {
+    let direct = 0;
+    for (const name of fs.readdirSync(root, { withFileTypes: true })) {
+      const child = path.join(root, name.name);
+      try { if (name.isDirectory() && hasSkill(child)) direct++; } catch { /* ignore */ }
+    }
+    if (direct > 0) return { layout: 'flat', count: direct, root };
+    const deep = scanDir(root, 'probe', 'nested');
+    if (deep.length > 0) return { layout: 'nested', count: deep.length, root };
+  }
+  return { layout: 'flat', count: 0, root: skillsChild };
+}
+
 export function scanRepo(repo: Repo): { source: string; path: string; skills: Skill[] } {
-  const root = path.join(expandTilde(repo.path), 'skills');
+  const root = repo.root ?? path.join(expandTilde(repo.path), 'skills');
   return { source: repo.id, path: root, skills: scanDir(root, repo.id, repo.layout) };
 }
 

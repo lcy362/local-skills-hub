@@ -4,6 +4,8 @@ export type SyncMode = 'symlink' | 'copy';
 export interface Repo {
   id: string;
   path: string;
+  /** 真实 skills 根目录，默认 <path>/skills；导入现有目录时指向其本体 */
+  root?: string;
   layout: Layout;
 }
 
