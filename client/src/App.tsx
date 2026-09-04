@@ -166,8 +166,8 @@ function AgentsView({ agents, onLoad }: { agents: AgentView[]; onLoad: () => voi
             <div className="row__title">
               {a.name}
               {a.active && <span className="dot dot--good" />}
-              {a.family && <span className="badge badge--family">家族 · {a.family}</span>}
-              {a.shared && <span className="badge badge--shared">共享 ~/{a.shared}</span>}
+              {a.sharedWith.length > 0 && <span className="badge badge--shared" title={`此目录被 ${a.sharedWith.join('、')} 共用`}>共用目录：{a.sharedWith.join('、')}</span>}
+              {a.alsoUsedBy && a.alsoUsedBy.length > 0 && <span className="badge badge--family" title={`同一目录亦被 ${a.alsoUsedBy.join('、')} 读取`}>亦用于：{a.alsoUsedBy.join('、')}</span>}
               {!a.installed && <span className="badge badge--off">未安装</span>}
             </div>
             <div className="row__meta">{a.globalDir} · {a.sync}</div>

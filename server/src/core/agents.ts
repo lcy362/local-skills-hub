@@ -14,6 +14,8 @@ export interface AgentDef {
   project?: string;
   category: ToolCategory;
   family?: string;
+  /** 文档化的跨产品目录复用：此目录亦被这些产品读取（无需同目录爆破即可说明） */
+  alsoUsedBy?: string[];
   /** 是否读取共享 ~/.agents 或 ~/.config/agents（仅发现/部署共享） */
   shared?: 'agents' | 'config-agents';
   recursive?: boolean;
@@ -23,12 +25,12 @@ export interface AgentDef {
 export const builtinAgents: AgentDef[] = [
   { key: 'cursor', name: 'Cursor', global: '.cursor/skills', project: '.cursor/skills', category: 'coding' },
   { key: 'claude', name: 'Claude Code', global: '.claude/skills', project: '.claude/skills', category: 'coding' },
-  { key: 'opencode', name: 'OpenCode', global: '.config/opencode/skills', project: '.opencode/skills', category: 'coding' },
+  { key: 'opencode', name: 'OpenCode', global: '.config/opencode/skills', project: '.opencode/skills', category: 'coding', shared: 'agents' },
   { key: 'codex', name: 'Codex CLI', global: '.codex/skills', project: '.codex/skills', category: 'coding', shared: 'agents' },
   { key: 'github_copilot', name: 'GitHub Copilot', global: '.copilot/skills', project: '.copilot/skills', category: 'coding', shared: 'agents' },
   { key: 'grok', name: 'Grok', global: '.grok/skills', project: '.grok/skills', category: 'coding' },
-  { key: 'trae', name: 'TRAE IDE', global: '.trae/skills', project: '.trae/skills', category: 'coding', family: 'TRAE' },
-  { key: 'trae-cn', name: 'TRAE CN', global: '.trae-cn/skills', project: '.trae-cn/skills', category: 'coding', family: 'TRAE' },
+  { key: 'trae', name: 'TRAE (TraeCode)', global: '.trae/skills', project: '.trae/skills', category: 'coding', family: 'TRAE', alsoUsedBy: ['TraeWork', 'TraeCode CLI'] },
+  { key: 'trae-cn', name: 'TRAE CN', global: '.trae-cn/skills', project: '.trae-cn/skills', category: 'coding', family: 'TRAE', alsoUsedBy: ['TraeWork(国内)', 'TraeCode CLI'] },
   { key: 'qoder', name: 'Qoder', global: '.qoder/skills', project: '.qoder/skills', category: 'coding', family: 'Qoder' },
   { key: 'qwen-code', name: 'Qwen Code', global: '.qwen/skills', project: '.qwen/skills', category: 'coding', family: 'Qoder' },
   { key: 'qoderwork', name: 'QoderWork(国际)', global: '.qoderwork/skills', project: '.qoderwork/skills', category: 'coding', family: 'Qoder' },
@@ -78,24 +80,38 @@ export interface AgentView extends AgentDef {
   sync: string;
   active: boolean;
   layers?: string[];
+  /** 与哪些 agent 解析到同一目录（自动比对） */
+  sharedWith: string[];
+  /** 文档化跨产品复用 */
+  alsoUsedBy?: string[];
 }
 
 export function listAgents(cfg: HubConfig): AgentView[] {
-  return builtinAgents
-    .map((def) => {
-      const ov = cfg.agents[def.key];
-      const globalDir = resolveGlobalDir(def, ov?.globalDir);
-      const installed = fs.existsSync(globalDir);
-      const sync = ov?.sync ?? cfg.defaultSync;
-      const active = cfg.activeAgents.includes(def.key);
-      return {
-        ...def,
-        globalDir,
-        installed,
-        sync,
-        active,
-        layers: def.shared ? [def.shared] : undefined,
-      };
-    })
-    .sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || (b.installed ? 1 : 0) - (a.installed ? 1 : 0));
+  const views: AgentView[] = builtinAgents.map((def) => {
+    const ov = cfg.agents[def.key];
+    const globalDir = resolveGlobalDir(def, ov?.globalDir);
+    const installed = fs.existsSync(globalDir);
+    const sync = ov?.sync ?? cfg.defaultSync;
+    const active = cfg.activeAgents.includes(def.key);
+    return {
+      ...def,
+      globalDir,
+      installed,
+      sync,
+      active,
+      layers: def.shared ? [def.shared] : undefined,
+      sharedWith: [],
+    };
+  });
+  // 按解析后的 globalDir 分组，同目录者互为 sharedWith
+  const byDir = new Map<string, AgentView[]>();
+  for (const v of views) {
+    const arr = byDir.get(v.globalDir) ?? [];
+    arr.push(v);
+    byDir.set(v.globalDir, arr);
+  }
+  for (const v of views) {
+    v.sharedWith = (byDir.get(v.globalDir) ?? []).filter((o) => o.key !== v.key).map((o) => o.name);
+  }
+  return views.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || (b.installed ? 1 : 0) - (a.installed ? 1 : 0));
 }
