@@ -64,3 +64,23 @@ console.log(isLink && fs.readdirSync(link).includes('SKILL.md') ? '✅ 最小闭
   const adopted = path.join(repoDir, 'skills', 'gamma');
   console.log('收编后仓库含 gamma =', fs.existsSync(path.join(adopted, 'SKILL.md')));
 }
+
+// ---- 批次2: 项目级 skill smoke ----
+{
+  const { addProject, syncProject } = await import('./src/core/projects.js');
+  const projBase = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-proj-'));
+  addProject(store, projBase, ['frontend']);
+  // 给 gamma 打 frontend 标签（gamma 已在仓库内）
+  store.data.skillMeta['alpha@default'] = { tags: ['frontend'] };
+  store.save();
+  const lib3 = scanAll(store.data.repos, store.data.foreignSources);
+  const res = syncProject(store, projBase, lib3.skills);
+  console.log('\n[project] .agents 复制 =', res.copied, '| agent项目目录软链 =', res.agentLinks.map((x) => `${x.agent}`).join(','));
+  const ag = path.join(projBase, '.agents', 'skills');
+  console.log('.agents 内容 =', fs.existsSync(ag) ? fs.readdirSync(ag) : 'none');
+  // 校验某 agent 项目目录软链
+  const traeLink = path.join(projBase, '.trae', 'skills');
+  console.log('.trae/skills 内容 =', fs.existsSync(traeLink) ? fs.readdirSync(traeLink).map((n) => `${n}(link=${fs.lstatSync(path.join(traeLink, n)).isSymbolicLink()})`) : 'none');
+  if (fs.existsSync(ag) && fs.readdirSync(ag).includes('alpha')) console.log('✅ 项目级同步通过');
+  else console.log('❌ 项目级同步失败');
+}

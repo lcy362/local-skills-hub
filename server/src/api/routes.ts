@@ -9,6 +9,7 @@ import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
 import { syncActive } from '../core/sync.js';
 import { previewGroups, applyAdoption } from '../core/integrate.js';
+import { addProject, syncProject } from '../core/projects.js';
 import { Repo, ForeignSource } from '../config/types.js';
 
 export function makeRouter(cfg: ConfigStore): Router {
@@ -130,6 +131,34 @@ export function makeRouter(cfg: ConfigStore): Router {
     const results = applyAdoption(cfg, lib, req.body?.decisions ?? []);
     cfg.save();
     res.json({ results });
+  });
+
+  // ---- projects (项目级 skill) ----
+  r.get('/projects', (_req, res) => {
+    res.json(cfg.data.projects.map((p) => ({ ...p, hasAgents: fs.existsSync(path.join(p.path, '.agents', 'skills')) })));
+  });
+  r.post('/projects', (req, res) => {
+    try {
+      addProject(cfg, String(req.body?.path), Array.isArray(req.body?.tags) ? req.body.tags : []);
+      res.json(cfg.data.projects);
+    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  });
+  r.put('/projects/:id/tags', (req, res) => {
+    const id = Number(req.params.id);
+    const proj = cfg.data.projects[id];
+    if (!proj) return res.status(404).json({ error: 'project not found' });
+    if (Array.isArray(req.body?.tags)) proj.tags = req.body.tags;
+    cfg.save();
+    res.json(proj);
+  });
+  r.post('/projects/:id/sync', (req, res) => {
+    const id = Number(req.params.id);
+    const proj = cfg.data.projects[id];
+    if (!proj) return res.status(404).json({ error: 'project not found' });
+    const lib = library();
+    const result = syncProject(cfg, proj.path, lib.skills);
+    cfg.save();
+    res.json(result);
   });
 
   // ---- sync ----
