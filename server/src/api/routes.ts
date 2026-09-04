@@ -8,6 +8,7 @@ import { scanAll } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
 import { syncActive } from '../core/sync.js';
+import { previewGroups, applyAdoption } from '../core/integrate.js';
 import { Repo, ForeignSource } from '../config/types.js';
 
 export function makeRouter(cfg: ConfigStore): Router {
@@ -117,6 +118,18 @@ export function makeRouter(cfg: ConfigStore): Router {
   r.delete('/presets/:name', (req, res) => {
     presets.remove(cfg, req.params.name);
     res.json({ ok: true });
+  });
+
+  // ---- integrate (收编/初始整合) ----
+  r.post('/integrate/preview', (_req, res) => {
+    const lib = library();
+    res.json({ groups: previewGroups(cfg, lib) });
+  });
+  r.post('/integrate', (req, res) => {
+    const lib = library();
+    const results = applyAdoption(cfg, lib, req.body?.decisions ?? []);
+    cfg.save();
+    res.json({ results });
   });
 
   // ---- sync ----

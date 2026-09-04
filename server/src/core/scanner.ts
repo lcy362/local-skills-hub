@@ -15,7 +15,15 @@ export function scanDir(root: string, source: string, layout: Layout): Skill[] {
   const out: Skill[] = [];
   for (const name of children) {
     const child = path.join(root, name);
-    if (!fs.statSync(child).isDirectory()) continue;
+    let isDir: boolean;
+    try {
+      const st = fs.lstatSync(child);
+      if (st.isSymbolicLink()) {
+        if (!fs.existsSync(child)) continue; // 失效软链，跳过
+      }
+      isDir = fs.statSync(child).isDirectory();
+    } catch { continue; }
+    if (!isDir) continue;
     if (hasSkill(child)) {
       const s = readSkill(child)!!;
       s.source = source;

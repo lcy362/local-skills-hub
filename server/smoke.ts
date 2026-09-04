@@ -50,3 +50,17 @@ const link = path.join(targetDir, 'alpha');
 const isLink = fs.lstatSync(link).isSymbolicLink();
 console.log('校验软链:', path.basename(link), 'isSymlink=', isLink, '→', fs.readdirSync(targetDir));
 console.log(isLink && fs.readdirSync(link).includes('SKILL.md') ? '✅ 最小闭环通过' : '❌ 失败');
+
+// ---- 批次1: 收编 smoke ----
+{
+  const lib2 = scanAll(store.data.repos, store.data.foreignSources);
+  const { previewGroups, applyAdoption } = await import('./src/core/integrate.js');
+  const groups = previewGroups(store, lib2);
+  console.log('\n[integrate] 候选分组 =', groups.map((g) => `${g.name}(${g.candidates.map((c) => c.source).join(',')})`).join(' ; '));
+  const res = applyAdoption(store, lib2, [
+    { name: 'gamma', selectId: 'gamma#ext:ume' },
+  ]);
+  console.log('[integrate] 收编 =', JSON.stringify(res, null, 2));
+  const adopted = path.join(repoDir, 'skills', 'gamma');
+  console.log('收编后仓库含 gamma =', fs.existsSync(path.join(adopted, 'SKILL.md')));
+}
