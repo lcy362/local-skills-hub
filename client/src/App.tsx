@@ -100,7 +100,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const [repos, setRepos] = useState<RepoView[]>([]);
   const [filter, setFilter] = useState('');
   const [nId, setNId] = useState(''); const [nPath, setNPath] = useState('');
-  const [iId, setIId] = useState(''); const [iPath, setIPath] = useState(''); const [iDet, setIDet] = useState<{ layout: string; count: number; root?: string } | null>(null); const [iLayout, setILayout] = useState('flat');
+  const [iId, setIId] = useState(''); const [iPath, setIPath] = useState(''); const [iDet, setIDet] = useState<{ layout: string; count: number; root?: string } | null>(null); const [iLayout, setILayout] = useState('flat'); const [impNote, setImpNote] = useState('');
   const [imp, setImp] = useState<Record<string, string>>({});
   const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
   useEffect(() => { api<RepoView[]>('/repos').then(setRepos); }, []);
@@ -116,8 +116,8 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
     setTags(id, s.tags.filter((t) => t !== tag));
   };
   const createRepo = async () => { if (!nId || !nPath) return; await api('/repos', { method: 'POST', body: JSON.stringify({ id: nId, path: nPath, layout: 'flat' }) }); setNId(''); setNPath(''); refreshRepos(); };
-  const detect = async () => { if (!iPath) return; setIDet(null); try { const r = await api<{ layout: string; count: number; root: string }>('/repos/detect', { method: 'POST', body: JSON.stringify({ path: iPath }) }); setIDet(r); setILayout(r.layout); } catch (e) { window.alert((e as Error).message); } };
-  const importRepo = async () => { if (!iId || !iPath) return; await api('/repos', { method: 'POST', body: JSON.stringify({ id: iId, path: iPath, layout: iLayout, root: iDet?.root }) }); onMsg(`已导入仓库 ${iId}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIDet(null); refreshRepos(); };
+  const detect = async () => { if (!iPath.trim()) { setImpNote('请先填写目录路径'); return; } setImpNote('识别中…'); setIDet(null); try { const r = await api<{ layout: string; count: number; root: string }>('/repos/detect', { method: 'POST', body: JSON.stringify({ path: iPath.trim() }) }); setIDet(r); setILayout(r.layout); setImpNote(r.count ? `已识别 <b>${r.layout}</b> 布局，含 ${r.count} 个 skill` : '该目录未发现 skill，请确认路径'); } catch (e) { setImpNote((e as Error).message); } };
+  const importRepo = async () => { if (!iDet) { setImpNote('请先点击「识别布局」并确认后再导入'); return; } if (!iId.trim() || !iPath.trim()) { setImpNote('请填写仓库 id 与路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id: iId.trim(), path: iPath.trim(), layout: iLayout, root: iDet.root }) }); onMsg(`已导入仓库 ${iId.trim()}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIDet(null); setImpNote(''); refreshRepos(); } catch (e) { setImpNote((e as Error).message); } };
   const runImp = async (repoId: string) => {
     const dirs = (imp[repoId] ?? '').split('\n').map((x) => x.trim()).filter(Boolean); if (!dirs.length) return;
     const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId }) });
@@ -149,17 +149,27 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
             <button className="btn btn--ghost" onClick={() => pickDir(setNPath)}>📁 文件夹…</button>
             <button className="btn btn--primary" onClick={createRepo}>＋ 新建仓库</button>
           </div>
+          <div className="panel__hint" style={{ marginTop: 12, marginBottom: 8 }}>导入现有目录 / 第三方库　（步骤1：识别布局　→　步骤2：确认并导入）</div>
           <div className="formline">
             <input className="field" style={{ width: 100 }} placeholder="id" value={iId} onChange={(e) => setIId(e.target.value)} />
-            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="导入现有目录 / 第三方库" value={iPath} onChange={(e) => setIPath(e.target.value)} />
-            <button className="btn btn--ghost" onClick={() => pickDir(setIPath)}>📁 文件夹…</button>
-            <button className="btn btn--ghost" onClick={detect}>识别布局</button>
-            <select className="field" style={{ width: 90 }} value={iLayout} onChange={(e) => setILayout(e.target.value)}>
-              <option value="flat">flat</option><option value="nested">nested</option>
-            </select>
-            <button className="btn btn--primary" onClick={importRepo}>导入为仓库</button>
+            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="已有 skill 的目录路径" value={iPath} onChange={(e) => { setIPath(e.target.value); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } }} />
+            <button className="btn btn--ghost" onClick={() => pickDir((v) => { setIPath(v); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } })}>📁 文件夹…</button>
+            <button className="btn btn--primary" style={{ fontWeight: 700 }} onClick={detect}>① 识别布局</button>
           </div>
-          {iDet && <div className="panel__hint" style={{ marginTop: 6 }}>识别：<b>{iDet.layout}</b>，含 <b>{iDet.count}</b> 个 skill{iDet.layout !== iLayout ? `（已按你改为 ${iLayout}）` : ''}</div>}
+          <div className="formline" style={{ marginTop: 8 }}>
+            {iDet ? (
+              <div className="formline" style={{ margin: 0, alignItems: 'center', gap: 8 }}>
+                <span className="panel__hint">已识别：<b>{iDet.layout}</b> · {iDet.count} 个 skill，布局可改：</span>
+                <select className="field" style={{ width: 110 }} value={iLayout} onChange={(e) => setILayout(e.target.value)}>
+                  <option value="flat">flat</option><option value="nested">nested</option>
+                </select>
+                <button className="btn btn--primary" onClick={importRepo}>② 导入为仓库</button>
+              </div>
+            ) : (
+              <span className="panel__hint" style={{ opacity: 0.75 }}>→ 请先填写 id 与路径，点击「① 识别布局」完成确认后方可导入</span>
+            )}
+          </div>
+          {impNote && <div className="panel__hint" style={{ marginTop: 8, fontWeight: 600 }} dangerouslySetInnerHTML={{ __html: impNote }} />}
         </div>
       </div>
 
