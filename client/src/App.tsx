@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, IntegrateGroup, Candidate, DiagItem, ProjectSyncResult, ImportResult } from './api';
+import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, IntegrateGroup, Candidate, DiagItem, ProjectSyncResult, ImportResult, ImportPreviewItem } from './api';
 
 type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'integrate' | 'diag';
 
@@ -125,38 +125,96 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
     const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId }) });
     onMsg(r.map((x) => `${x.source}：导入 ${x.imported.length} · 跳过 ${x.skipped.length}`).join('  ·  ')); refreshRepos();
   };
+  const [impPrev, setImpPrev] = useState<Record<string, ImportPreviewItem[] | null>>({});
+  const [impBusy, setImpBusy] = useState<Record<string, boolean>>({});
+  const detectImp = async (repoId: string) => {
+    const dirs = (imp[repoId] ?? '').split('\n').map((x) => x.trim()).filter(Boolean);
+    if (!dirs.length) { setImpPrev({ ...impPrev, [repoId]: null }); onMsg('请先填写至少一个要导入的目录路径'); return; }
+    setImpBusy({ ...impBusy, [repoId]: true }); setImpPrev({ ...impPrev, [repoId]: null });
+    try {
+      const pre = await api<ImportPreviewItem[]>('/import/preview', { method: 'POST', body: JSON.stringify({ dirs }) });
+      setImpPrev({ ...impPrev, [repoId]: pre });
+      const bad = pre.filter((x) => x.error || x.count === 0);
+      onMsg(bad.length ? `${bad.length} 个路径未发现可导入 skill，请确认后重试` : `${pre.reduce((n, x) => n + x.count, 0)} 个 skill 待导入，确认后执行复制`);
+    } catch (e) { setImpPrev({ ...impPrev, [repoId]: null }); onMsg((e as Error).message); }
+    setImpBusy({ ...impBusy, [repoId]: false });
+  };
+  const resetImp = (repoId: string) => { setImp({ ...imp, [repoId]: '' }); setImpPrev({ ...impPrev, [repoId]: null }); };
   const skills = state?.skills ?? [];
   const filtered = filter ? skills.filter((s) => s.source === filter) : skills;
   const sources = Array.from(new Set(skills.map((s) => s.source)));
   return (
     <>
+      {/* ===== 已有仓库 ===== */}
       <div className="panel">
-        <div className="panel__head"><h2 className="panel__title">仓库</h2><span className="panel__hint">SKILL 唯一事实源 · 新建用标准布局，导入自动识别</span></div>
+        <div className="panel__head">
+          <h2 className="panel__title">已有仓库</h2>
+          {repos.length > 0 && <span className="badge badge--off">{repos.length} 个</span>}
+          <span className="panel__hint">SKILL 唯一事实源</span>
+        </div>
+        {repos.length === 0 && <div className="empty">尚未配置仓库。在下方向下「新增仓库」新建空仓库，或导入已有目录。</div>}
         {repos.map((r) => (
-          <div style={{ marginBottom: 10 }} key={r.id}>
-            <div className="row">
-              <div className="row__main"><div className="row__title">{r.id}<span className="badge badge--off">[{r.layout}]</span></div><div className="row__meta">{r.path}</div></div>
-              <div className="row__actions"><button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); refreshRepos(); }}>删除</button></div>
+          <div className="repo" key={r.id}>
+            <div className="repo__top">
+              <div className="repo__main">
+                <div className="repo__title">
+                  {r.id}
+                  <span className="badge badge--off">[{r.layout}]</span>
+                  <span className="repo__path">{r.path}</span>
+                </div>
+              </div>
+              <button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); refreshRepos(); }}>删除</button>
             </div>
-            <div className="formline" style={{ marginTop: 6 }}>
-              <textarea className="field field--area" style={{ flex: 1, minHeight: 54 }} placeholder={`向 ${r.id} 导入其他目录的 skill（每行一个目录，可含子分类）`} value={imp[r.id] ?? ''} onChange={(e) => setImp({ ...imp, [r.id]: e.target.value })} />
-              <button className="btn btn--primary" onClick={() => runImp(r.id)}>导入 skill</button>
+            <div className="repo__import">
+              <div className="repo__import-label">向此仓库导入其他目录的 skill（每行一个目录，可含子分类）</div>
+              <div className="formline">
+                <textarea className="field field--area" style={{ flex: 1, minHeight: 54 }} placeholder="每行一个目录路径，可含子分类" value={imp[r.id] ?? ''} onChange={(e) => { setImp({ ...imp, [r.id]: e.target.value }); setImpPrev({ ...impPrev, [r.id]: null }); }} />
+                <button className="btn btn--ghost" onClick={() => pickDir((v) => { const cur = (imp[r.id] ?? '').trim(); setImp({ ...imp, [r.id]: cur ? cur + '\n' + v : v }); setImpPrev({ ...impPrev, [r.id]: null }); })}>📁 文件夹…</button>
+                <button className="btn btn--ghost" disabled={impBusy[r.id]} onClick={() => detectImp(r.id)}>① 识别</button>
+              </div>
+              {impPrev[r.id] && (
+                <div className="repo__detect">
+                  {impPrev[r.id]!.map((p) => (
+                    <div className="repo__detect-row" key={p.source}>
+                      <span className="repo__detect-path">{p.source}</span>
+                      {p.error || p.count === 0
+                        ? <span className="repo__detect-status is-bad">{p.error || '未发现 skill'}</span>
+                        : <span className="repo__detect-status is-ok">{p.layout} · {p.count} 个</span>}
+                    </div>
+                  ))}
+                  <div className="formline" style={{ margin: '8px 0 0' }}>
+                    <button className="btn btn--primary" onClick={() => runImp(r.id)}>② 确认导入</button>
+                    <button className="btn btn--ghost" onClick={() => resetImp(r.id)}>清空 &amp; 重填</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
-        <div className="formblock">
+      </div>
+
+      {/* ===== 新增仓库 ===== */}
+      <div className="panel panel--new">
+        <div className="panel__head">
+          <h2 className="panel__title">新增仓库</h2>
+          <span className="panel__hint">新建空仓库，或导入已有目录 / 第三方库</span>
+        </div>
+        <div className="subcard">
+          <div className="subcard__head"><span className="step">1</span>新建空仓库<span className="panel__hint">标准 flat 布局</span></div>
           <div className="formline">
             <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={nId} onChange={(e) => { setNId(e.target.value); setNIdT(true); }} />
-            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（可留空取目录名，新建 → 标准 flat 布局）" value={nPath} onChange={(e) => { setNPath(e.target.value); if (!nIdT) setNId(idOf(e.target.value)); }} />
+            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（可留空取目录名）" value={nPath} onChange={(e) => { setNPath(e.target.value); if (!nIdT) setNId(idOf(e.target.value)); }} />
             <button className="btn btn--ghost" onClick={() => pickDir((v) => { setNPath(v); if (!nIdT) setNId(idOf(v)); })}>📁 文件夹…</button>
             <button className="btn btn--primary" onClick={createRepo}>＋ 新建仓库</button>
           </div>
-          <div className="panel__hint" style={{ marginTop: 12, marginBottom: 8 }}>导入现有目录 / 第三方库　（步骤1：识别布局　→　步骤2：确认并导入）</div>
+        </div>
+        <div className="subcard">
+          <div className="subcard__head"><span className="step">2</span>导入已有目录 / 第三方库<span className="panel__hint">识别布局 → 确认导入</span></div>
           <div className="formline">
             <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={iId} onChange={(e) => { setIId(e.target.value); setIIdT(true); }} />
             <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="已有 skill 的目录路径" value={iPath} onChange={(e) => { setIPath(e.target.value); if (!iIdT) setIId(idOf(e.target.value)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } }} />
             <button className="btn btn--ghost" onClick={() => pickDir((v) => { setIPath(v); if (!iIdT) setIId(idOf(v)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } })}>📁 文件夹…</button>
-            <button className="btn btn--primary" style={{ fontWeight: 700 }} onClick={detect}>① 识别布局</button>
+            <button className="btn btn--primary" onClick={detect}>① 识别布局</button>
           </div>
           <div className="formline" style={{ marginTop: 8 }}>
             {iDet ? (
@@ -183,7 +241,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
             {sources.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
-        {filtered.length === 0 && <div className="empty">暂无 skill。先在顶部新建或导入仓库；已有 skill 可用「收编」合并进来。</div>}
+        {filtered.length === 0 && <div className="empty">暂无 skill。先在「新增仓库」新建或导入仓库；已有 skill 可用「收编」合并进来。</div>}
         {filtered.map((s) => (
           <div className="row" key={s.id}>
             <div className="row__main">

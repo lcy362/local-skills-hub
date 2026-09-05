@@ -1,10 +1,29 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ConfigStore } from '../config/store.js';
-import { scanDir } from './scanner.js';
+import { scanDir, detectLayoutAbs } from './scanner.js';
 import { expandTilde } from './agents.js';
 
 export interface ImportResult { source: string; imported: string[]; skipped: string[] }
+
+export interface ImportPreviewItem { source: string; layout: 'flat' | 'nested'; count: number; error?: string }
+
+/**
+ * 导入前预览：逐目录识别布局并统计可导入 skill 数。
+ * count 与 importDirs 的 nested 扫描口径一致，保证预览 = 实际导入数。
+ */
+export function previewImportDirs(sourceDirs: string[]): ImportPreviewItem[] {
+  const out: ImportPreviewItem[] = [];
+  for (const sd of sourceDirs) {
+    const abs = expandTilde(sd);
+    if (!fs.existsSync(abs)) { out.push({ source: sd, layout: 'flat', count: 0, error: '路径不存在' }); continue; }
+    try {
+      const det = detectLayoutAbs(abs);
+      out.push({ source: sd, layout: det.layout, count: scanDir(abs, 'probe', 'nested').length });
+    } catch (e) { out.push({ source: sd, layout: 'flat', count: 0, error: String(e) }); }
+  }
+  return out;
+}
 
 /**
  * 批量导入：把若干外部 skill 目录(及其子级分类)一次性复制进某仓库 skills/。

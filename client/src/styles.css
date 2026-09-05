@@ -225,6 +225,48 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
 .formline { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-3); flex-wrap: wrap; }
 .formblock { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+
+/* ---------- Library workspaces (component redesign) ----------
+ * Hallmark · component: library-workspaces · genre: modern-minimal · theme: Cobalt(light)
+ * states: btn/field inherit the 8-state coverage above; label + step are static
+ */
+.repo {
+  background: var(--color-paper-1);
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  transition: border-color var(--dur-fast), transform var(--dur-base) var(--ease-in-out);
+}
+.repo:hover { border-color: oklch(0.34 0.03 255); }
+.repo + .repo { margin-top: var(--space-2); }
+.repo__top { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.repo__main { min-width: 0; flex: 1; }
+.repo__title { font-weight: 600; font-size: var(--text-sm); display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.repo__path { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-soft); font-weight: 400; }
+.repo__import { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px dashed var(--color-line); }
+.repo__import-label { font-size: var(--text-2xs); font-family: var(--font-mono); color: var(--color-ink-soft); margin-bottom: var(--space-2); }
+.repo__detect { margin-top: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--color-paper-0); border: 1px solid var(--color-line); border-radius: var(--radius-md); }
+.repo__detect-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.repo__detect-row + .repo__detect-row { margin-top: var(--space-1); }
+.repo__detect-path { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-dim); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo__detect-status { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
+.repo__detect-status.is-ok { color: var(--color-good); }
+.repo__detect-status.is-bad { color: var(--color-bad); }
+
+/* "add repo" action zone — dashed outline sets it apart from the solid list panel */
+.panel--new { background: var(--color-paper-1); border-style: dashed; }
+.subcard {
+  background: var(--color-paper-2); border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+}
+.subcard + .subcard { margin-top: var(--space-3); }
+.subcard__head { display: flex; align-items: center; gap: var(--space-2); font-weight: 600; font-size: var(--text-sm); margin-bottom: var(--space-2); flex-wrap: wrap; }
+.step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--color-accent); color: var(--color-on-accent);
+  font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 700; flex-shrink: 0;
+}
 .checklist { max-height: 300px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--space-1); }
 .checklist label { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); padding: 3px 6px; border-radius: var(--radius-sm); }
 .checklist label:hover { background: var(--color-paper-2); }

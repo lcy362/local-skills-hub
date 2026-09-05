@@ -23,3 +23,4 @@ export interface IntegrateGroup { name: string; candidates: Candidate[] }
 export interface DiagItem { key: string; status: 'ok' | 'warn' | 'error'; message: string }
 export interface ProjectSyncResult { project: string; copied: string[]; removed: string[]; agentLinks: { agent: string; created: string[] }[]; errors: string[] }
 export interface ImportResult { source: string; imported: string[]; skipped: string[] }
+export interface ImportPreviewItem { source: string; layout: string; count: number; error?: string }

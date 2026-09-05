@@ -10,7 +10,7 @@ import * as active from '../core/active.js';
 import { syncActive } from '../core/sync.js';
 import { previewGroups, applyAdoption } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
-import { importDirs } from '../core/import.js';
+import { importDirs, previewImportDirs } from '../core/import.js';
 import { diagnose } from '../core/diagnose.js';
 import { pickDirectory } from '../core/picker.js';
 import { Repo, ForeignSource } from '../config/types.js';
@@ -179,6 +179,10 @@ export function makeRouter(cfg: ConfigStore): Router {
   });
 
   // ---- batch import / diagnose ----
+  r.post('/import/preview', (req, res) => {
+    const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : [];
+    res.json(previewImportDirs(dirs));
+  });
   r.post('/import', (req, res) => {
     const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : [];
     const repoId = req.body?.repoId;
