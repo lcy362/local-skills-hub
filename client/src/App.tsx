@@ -104,6 +104,8 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const idOf = (p: string) => p.trim().replace(/\/$/, '').replace(/\/skills$/, '').split(/[/\\]/).filter(Boolean).pop() ?? '';
   const [iId, setIId] = useState(''); const [iPath, setIPath] = useState(''); const [iDet, setIDet] = useState<{ layout: string; count: number; root?: string } | null>(null); const [iLayout, setILayout] = useState('flat'); const [impNote, setImpNote] = useState('');
   const [imp, setImp] = useState<Record<string, string>>({});
+  const [showRepos, setShowRepos] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
   const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
   useEffect(() => { api<RepoView[]>('/repos').then(setRepos); }, []);
   const setTags = async (id: string, tags: string[]) => {
@@ -150,94 +152,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const sources = Array.from(new Set(skills.map((s) => s.source)));
   return (
     <>
-      {/* ===== 已有仓库 ===== */}
-      <div className="panel">
-        <div className="panel__head">
-          <h2 className="panel__title">已有仓库</h2>
-          {repos.length > 0 && <span className="badge badge--off">{repos.length} 个</span>}
-          <span className="panel__hint">SKILL 唯一事实源</span>
-        </div>
-        {repos.length === 0 && <div className="empty">尚未配置仓库。在下方向下「新增仓库」新建空仓库，或导入已有目录。</div>}
-        {repos.map((r) => (
-          <div className="repo" key={r.id}>
-            <div className="repo__top">
-              <div className="repo__main">
-                <div className="repo__title">
-                  {r.id}
-                  <span className="badge badge--off">[{r.layout}]</span>
-                  <span className="repo__path">{r.path}</span>
-                </div>
-              </div>
-              <button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); refreshRepos(); }}>删除</button>
-            </div>
-            <div className="repo__import">
-              <div className="repo__import-label">向此仓库导入其他目录的 skill（每行一个目录，可含子分类）</div>
-              <div className="formline">
-                <textarea className="field field--area" style={{ flex: 1, minHeight: 54 }} placeholder="每行一个目录路径，可含子分类" value={imp[r.id] ?? ''} onChange={(e) => { setImp({ ...imp, [r.id]: e.target.value }); setImpPrev({ ...impPrev, [r.id]: null }); }} />
-                <button className="btn btn--ghost" onClick={() => pickDir((v) => { const cur = (imp[r.id] ?? '').trim(); setImp({ ...imp, [r.id]: cur ? cur + '\n' + v : v }); setImpPrev({ ...impPrev, [r.id]: null }); })}>📁 文件夹…</button>
-                <button className="btn btn--ghost" disabled={impBusy[r.id]} onClick={() => detectImp(r.id)}>① 识别</button>
-              </div>
-              {impPrev[r.id] && (
-                <div className="repo__detect">
-                  {impPrev[r.id]!.map((p) => (
-                    <div className="repo__detect-row" key={p.source}>
-                      <span className="repo__detect-path">{p.source}</span>
-                      {p.error || p.count === 0
-                        ? <span className="repo__detect-status is-bad">{p.error || '未发现 skill'}</span>
-                        : <span className="repo__detect-status is-ok">{p.layout} · {p.count} 个</span>}
-                    </div>
-                  ))}
-                  <div className="formline" style={{ margin: '8px 0 0' }}>
-                    <button className="btn btn--primary" onClick={() => runImp(r.id)}>② 确认导入</button>
-                    <button className="btn btn--ghost" onClick={() => resetImp(r.id)}>清空 &amp; 重填</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* ===== 新增仓库 ===== */}
-      <div className="panel panel--new">
-        <div className="panel__head">
-          <h2 className="panel__title">新增仓库</h2>
-          <span className="panel__hint">新建空仓库，或导入已有目录 / 第三方库</span>
-        </div>
-        <div className="subcard">
-          <div className="subcard__head"><span className="step">1</span>新建空仓库<span className="panel__hint">标准 flat 布局</span></div>
-          <div className="formline">
-            <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={nId} onChange={(e) => { setNId(e.target.value); setNIdT(true); }} />
-            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（可留空取目录名）" value={nPath} onChange={(e) => { setNPath(e.target.value); if (!nIdT) setNId(idOf(e.target.value)); }} />
-            <button className="btn btn--ghost" onClick={() => pickDir((v) => { setNPath(v); if (!nIdT) setNId(idOf(v)); })}>📁 文件夹…</button>
-            <button className="btn btn--primary" onClick={createRepo}>＋ 新建仓库</button>
-          </div>
-        </div>
-        <div className="subcard">
-          <div className="subcard__head"><span className="step">2</span>导入已有目录 / 第三方库<span className="panel__hint">识别布局 → 确认导入</span></div>
-          <div className="formline">
-            <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={iId} onChange={(e) => { setIId(e.target.value); setIIdT(true); }} />
-            <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="已有 skill 的目录路径" value={iPath} onChange={(e) => { setIPath(e.target.value); if (!iIdT) setIId(idOf(e.target.value)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } }} />
-            <button className="btn btn--ghost" onClick={() => pickDir((v) => { setIPath(v); if (!iIdT) setIId(idOf(v)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } })}>📁 文件夹…</button>
-            <button className="btn btn--primary" onClick={detect}>① 识别布局</button>
-          </div>
-          <div className="formline" style={{ marginTop: 8 }}>
-            {iDet ? (
-              <div className="formline" style={{ margin: 0, alignItems: 'center', gap: 8 }}>
-                <span className="panel__hint">已识别：<b>{iDet.layout}</b> · {iDet.count} 个 skill，布局可改：</span>
-                <select className="field" style={{ width: 110 }} value={iLayout} onChange={(e) => setILayout(e.target.value)}>
-                  <option value="flat">flat</option><option value="nested">nested</option>
-                </select>
-                <button className="btn btn--primary" onClick={importRepo}>② 导入为仓库</button>
-              </div>
-            ) : (
-              <span className="panel__hint" style={{ opacity: 0.75 }}>→ 请先填写 id 与路径，点击「① 识别布局」完成确认后方可导入</span>
-            )}
-          </div>
-          {impNote && <div className="panel__hint" style={{ marginTop: 8, fontWeight: 600 }} dangerouslySetInnerHTML={{ __html: impNote }} />}
-        </div>
-      </div>
-
+      {/* 资产列表 = 页面主体 */}
       <div className="panel">
         <div className="panel__head">
           <h2 className="panel__title">资产 {filtered.length}</h2>
@@ -245,8 +160,12 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
             <option value="">全部来源</option>
             {sources.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <div className="panel__actions">
+            <button className="btn" onClick={() => setShowRepos(true)}>已有仓库{repos.length > 0 && ` · ${repos.length}`}</button>
+            <button className="btn btn--primary" onClick={() => setShowAdd(true)}>＋ 新增仓库</button>
+          </div>
         </div>
-        {filtered.length === 0 && <div className="empty">暂无 skill。先在「新增仓库」新建或导入仓库；已有 skill 可用「收编」合并进来。</div>}
+        {filtered.length === 0 && <div className="empty">暂无 skill。点右上角「＋ 新增仓库」新建或导入仓库；已有 skill 可用「收编」合并进来。</div>}
         {filtered.map((s) => (
           <div className="row" key={s.id}>
             <div className="row__main">
@@ -260,7 +179,105 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
           </div>
         ))}
       </div>
+
+      {/* 已有仓库 - 弹窗 */}
+      {showRepos && (
+        <Modal title="已有仓库" hint="SKILL 唯一事实源" onClose={() => setShowRepos(false)}>
+          {repos.length === 0 && <div className="empty">尚未配置仓库。点「＋ 新增仓库」新建或导入。</div>}
+          {repos.map((r) => (
+            <div className="repo" key={r.id}>
+              <div className="repo__top">
+                <div className="repo__main">
+                  <div className="repo__title">
+                    {r.id}
+                    <span className="badge badge--off">[{r.layout}]</span>
+                    <span className="repo__path">{r.path}</span>
+                  </div>
+                </div>
+                <button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); refreshRepos(); }}>删除</button>
+              </div>
+              <div className="repo__import">
+                <div className="repo__import-label">向此仓库导入其他目录的 skill（每行一个目录，可含子分类）</div>
+                <div className="formline">
+                  <textarea className="field field--area" style={{ flex: 1, minHeight: 54 }} placeholder="每行一个目录路径，可含子分类" value={imp[r.id] ?? ''} onChange={(e) => { setImp({ ...imp, [r.id]: e.target.value }); setImpPrev({ ...impPrev, [r.id]: null }); }} />
+                  <button className="btn btn--ghost" onClick={() => pickDir((v) => { const cur = (imp[r.id] ?? '').trim(); setImp({ ...imp, [r.id]: cur ? cur + '\n' + v : v }); setImpPrev({ ...impPrev, [r.id]: null }); })}>📁 文件夹…</button>
+                  <button className="btn btn--ghost" disabled={impBusy[r.id]} onClick={() => detectImp(r.id)}>① 识别</button>
+                </div>
+                {impPrev[r.id] && (
+                  <div className="repo__detect">
+                    {impPrev[r.id]!.map((p) => (
+                      <div className="repo__detect-row" key={p.source}>
+                        <span className="repo__detect-path">{p.source}</span>
+                        {p.error || p.count === 0
+                          ? <span className="repo__detect-status is-bad">{p.error || '未发现 skill'}</span>
+                          : <span className="repo__detect-status is-ok">{p.layout} · {p.count} 个</span>}
+                      </div>
+                    ))}
+                    <div className="formline" style={{ margin: '8px 0 0' }}>
+                      <button className="btn btn--primary" onClick={() => runImp(r.id)}>② 确认导入</button>
+                      <button className="btn btn--ghost" onClick={() => resetImp(r.id)}>清空 &amp; 重填</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </Modal>
+      )}
+
+      {/* 新增仓库 - 弹窗 */}
+      {showAdd && (
+        <Modal title="新增仓库" hint="新建空仓库，或导入已有目录 / 第三方库" onClose={() => setShowAdd(false)}>
+          <div className="subcard">
+            <div className="subcard__head"><span className="step">1</span>新建空仓库<span className="panel__hint">标准 flat 布局</span></div>
+            <div className="formline">
+              <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={nId} onChange={(e) => { setNId(e.target.value); setNIdT(true); }} />
+              <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="仓库路径（可留空取目录名）" value={nPath} onChange={(e) => { setNPath(e.target.value); if (!nIdT) setNId(idOf(e.target.value)); }} />
+              <button className="btn btn--ghost" onClick={() => pickDir((v) => { setNPath(v); if (!nIdT) setNId(idOf(v)); })}>📁 文件夹…</button>
+              <button className="btn btn--primary" onClick={createRepo}>＋ 新建仓库</button>
+            </div>
+          </div>
+          <div className="subcard">
+            <div className="subcard__head"><span className="step">2</span>导入已有目录 / 第三方库<span className="panel__hint">识别布局 → 确认导入</span></div>
+            <div className="formline">
+              <input className="field" style={{ width: 110 }} placeholder="id（默认=目录名）" value={iId} onChange={(e) => { setIId(e.target.value); setIIdT(true); }} />
+              <input className="field" style={{ flex: 1, minWidth: 180 }} placeholder="已有 skill 的目录路径" value={iPath} onChange={(e) => { setIPath(e.target.value); if (!iIdT) setIId(idOf(e.target.value)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } }} />
+              <button className="btn btn--ghost" onClick={() => pickDir((v) => { setIPath(v); if (!iIdT) setIId(idOf(v)); if (iDet) { setIDet(null); setImpNote('路径已变更，请重新识别布局'); } })}>📁 文件夹…</button>
+              <button className="btn btn--primary" onClick={detect}>① 识别布局</button>
+            </div>
+            <div className="formline" style={{ marginTop: 8 }}>
+              {iDet ? (
+                <div className="formline" style={{ margin: 0, alignItems: 'center', gap: 8 }}>
+                  <span className="panel__hint">已识别：<b>{iDet.layout}</b> · {iDet.count} 个 skill，布局可改：</span>
+                  <select className="field" style={{ width: 110 }} value={iLayout} onChange={(e) => setILayout(e.target.value)}>
+                    <option value="flat">flat</option><option value="nested">nested</option>
+                  </select>
+                  <button className="btn btn--primary" onClick={importRepo}>② 导入为仓库</button>
+                </div>
+              ) : (
+                <span className="panel__hint" style={{ opacity: 0.75 }}>→ 请先填写 id 与路径，点击「① 识别布局」完成确认后方可导入</span>
+              )}
+            </div>
+            {impNote && <div className="panel__hint" style={{ marginTop: 8, fontWeight: 600 }} dangerouslySetInnerHTML={{ __html: impNote }} />}
+          </div>
+        </Modal>
+      )}
     </>
+  );
+}
+
+function Modal({ title, hint, onClose, children }: { title: string; hint?: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__head">
+          <h2 className="modal__title">{title}</h2>
+          {hint && <span className="panel__hint">{hint}</span>}
+          <button className="btn btn--ghost btn--sm modal__close" onClick={onClose}>✕ 关闭</button>
+        </div>
+        <div className="modal__body">{children}</div>
+      </div>
+    </div>
   );
 }
 

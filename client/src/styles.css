@@ -267,6 +267,34 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
   background: var(--color-accent); color: var(--color-on-accent);
   font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 700; flex-shrink: 0;
 }
+
+/* ---------- Modal ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: oklch(0.25 0.02 255 / 0.45);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  overflow-y: auto;
+}
+.modal {
+  width: min(680px, 100%);
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1), 0 24px 60px oklch(0 0 0 / 0.18);
+  animation: modal-in var(--dur-slow) var(--ease-out);
+}
+.modal__head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-line-soft); }
+.modal__title { font-size: var(--text-lg); margin: 0; }
+.modal__close { margin-left: auto; }
+.modal__body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); overflow-y: auto; max-height: 70vh; }
+@keyframes modal-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 768px) {
+  .modal-backdrop { padding: var(--space-3); align-items: flex-end; }
+  .modal { width: 100%; max-height: 88vh; overflow: hidden; }
+  .modal__body { max-height: none; }
+}
 .checklist { max-height: 300px; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--space-1); }
 .checklist label { display: flex; align-items: center; gap: 8px; font-size: var(--text-xs); padding: 3px 6px; border-radius: var(--radius-sm); }
 .checklist label:hover { background: var(--color-paper-2); }
