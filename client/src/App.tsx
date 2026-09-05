@@ -98,7 +98,6 @@ function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
 /* ================= Library ================= */
 function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: () => void; onMsg: (m: string) => void }) {
   const [repos, setRepos] = useState<RepoView[]>([]);
-  const [filter, setFilter] = useState('');
   const [nId, setNId] = useState(''); const [nPath, setNPath] = useState(''); const [nIdT, setNIdT] = useState(false);
   const [iIdT, setIIdT] = useState(false);
   const idOf = (p: string) => p.trim().replace(/\/$/, '').replace(/\/skills$/, '').split(/[/\\]/).filter(Boolean).pop() ?? '';
@@ -106,6 +105,13 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const [imp, setImp] = useState<Record<string, string>>({});
   const [showRepos, setShowRepos] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [view, setView] = useState<'list' | 'card'>('list');
+  const [srcSel, setSrcSel] = useState<string[]>([]);
+  const [tagSel, setTagSel] = useState<string[]>([]);
+  const [srcSingle, setSrcSingle] = useState(false);
+  const [tagSingle, setTagSingle] = useState(false);
+  const toggleSel = (sel: string[], v: string, single: boolean) =>
+    sel.includes(v) ? (single ? [] : sel.filter((x) => x !== v)) : (single ? [v] : [...sel, v]);
   const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
   useEffect(() => { api<RepoView[]>('/repos').then(setRepos); }, []);
   const setTags = async (id: string, tags: string[]) => {
@@ -148,36 +154,84 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   };
   const resetImp = (repoId: string) => { setImp({ ...imp, [repoId]: '' }); setImpPrev({ ...impPrev, [repoId]: null }); };
   const skills = state?.skills ?? [];
-  const filtered = filter ? skills.filter((s) => s.source === filter) : skills;
   const sources = Array.from(new Set(skills.map((s) => s.source)));
+  const allTags = Array.from(new Set(skills.flatMap((s) => s.tags))).sort();
+  const filtered = skills.filter((s) =>
+    (srcSel.length === 0 || srcSel.includes(s.source)) &&
+    (tagSel.length === 0 || tagSel.some((t) => s.tags.includes(t)))
+  );
+  const skillMeta = (s: SkillView) => (
+    <>
+      <div className="row__title">{s.name}<span className="badge badge--off">@{s.source}</span></div>
+      <div className="row__note">{s.description || '（无描述）'}</div>
+      <div className="skill-tags">
+        {s.tags.map((t) => <button key={t} className="tag" onClick={() => delTag(s.id, t)}>{t} ✕</button>)}
+        <QuickTag onAdd={(t) => addTag(s.id, t)} />
+      </div>
+    </>
+  );
   return (
     <>
       {/* 资产列表 = 页面主体 */}
       <div className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">资产 {filtered.length}</h2>
-          <select className="field" style={{ width: 160 }} value={filter} onChange={(e) => setFilter(e.target.value)}>
-            <option value="">全部来源</option>
-            {sources.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <h2 className="panel__title">资产 <em className="count">{filtered.length}</em></h2>
+          <div className="seg" role="group" aria-label="展示样式">
+            <button className={`seg__opt${view === 'list' ? ' is-on' : ''}`} onClick={() => setView('list')}>☰ 列表</button>
+            <button className={`seg__opt${view === 'card' ? ' is-on' : ''}`} onClick={() => setView('card')}>▦ 卡片</button>
+          </div>
           <div className="panel__actions">
             <button className="btn" onClick={() => setShowRepos(true)}>已有仓库{repos.length > 0 && ` · ${repos.length}`}</button>
             <button className="btn btn--primary" onClick={() => setShowAdd(true)}>＋ 新增仓库</button>
           </div>
         </div>
-        {filtered.length === 0 && <div className="empty">暂无 skill。点右上角「＋ 新增仓库」新建或导入仓库；已有 skill 可用「收编」合并进来。</div>}
-        {filtered.map((s) => (
-          <div className="row" key={s.id}>
-            <div className="row__main">
-              <div className="row__title">{s.name}<span className="badge badge--off">@{s.source}</span></div>
-              <div className="row__note">{s.description || '（无描述）'}</div>
-              <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                {s.tags.map((t) => <button key={t} className="tag" onClick={() => delTag(s.id, t)}>{t} ✕</button>)}
-                <QuickTag onAdd={(t) => addTag(s.id, t)} />
+        <div className="filterbar">
+          <div className="facet">
+            <div className="facet__head">
+              <span className="facet__label">来源</span>
+              <div className="seg seg--sm" role="group" aria-label="来源选择模式">
+                <button className={`seg__opt${srcSingle ? ' is-on' : ''}`} onClick={() => setSrcSingle(true)}>单选</button>
+                <button className={`seg__opt${!srcSingle ? ' is-on' : ''}`} onClick={() => setSrcSingle(false)}>多选</button>
               </div>
             </div>
+            <div className="facet__opts">
+              <button className={`chip${srcSel.length === 0 ? ' is-on' : ''}`} onClick={() => setSrcSel([])}>全部</button>
+              {sources.map((s) => (
+                <button key={s} className={`chip${srcSel.includes(s) ? ' is-on' : ''}`} onClick={() => setSrcSel((prev) => toggleSel(prev, s, srcSingle))}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div className="facet">
+            <div className="facet__head">
+              <span className="facet__label">标签</span>
+              <div className="seg seg--sm" role="group" aria-label="标签选择模式">
+                <button className={`seg__opt${tagSingle ? ' is-on' : ''}`} onClick={() => setTagSingle(true)}>单选</button>
+                <button className={`seg__opt${!tagSingle ? ' is-on' : ''}`} onClick={() => setTagSingle(false)}>多选</button>
+              </div>
+            </div>
+            <div className="facet__opts">
+              <button className={`chip${tagSel.length === 0 ? ' is-on' : ''}`} onClick={() => setTagSel([])}>全部</button>
+              {allTags.map((t) => (
+                <button key={t} className={`chip${tagSel.includes(t) ? ' is-on' : ''}`} onClick={() => setTagSel((prev) => toggleSel(prev, t, tagSingle))}>{t}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {filtered.length === 0 && <div className="empty">没有匹配的 skill。可调整筛选，或点右上角「＋ 新增仓库」新建/导入仓库；已有 skill 可用「收编」合并进来。</div>}
+        {view === 'list' && filtered.map((s) => (
+          <div className="row" key={s.id}>
+            <div className="row__main">{skillMeta(s)}</div>
           </div>
         ))}
+        {view === 'card' && (
+          <div className="grid-card">
+            {filtered.map((s) => (
+              <div className="card" key={s.id}>
+                <div className="card__inner">{skillMeta(s)}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 已有仓库 - 弹窗 */}
