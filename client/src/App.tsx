@@ -123,7 +123,12 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const runImp = async (repoId: string) => {
     const dirs = (imp[repoId] ?? '').split('\n').map((x) => x.trim()).filter(Boolean); if (!dirs.length) return;
     const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId }) });
-    onMsg(r.map((x) => `${x.source}：导入 ${x.imported.length} · 跳过 ${x.skipped.length}`).join('  ·  ')); refreshRepos();
+    const imported = r.reduce((n, x) => n + x.imported.length, 0);
+    const skipped = r.reduce((n, x) => n + x.skipped.length, 0);
+    const detail = r.map((x) => `${x.source}：新增 ${x.imported.length} · 去重跳过 ${x.skipped.length}`).join('  ·  ');
+    onMsg(`导入完成 ✓ 共新增 ${imported} 个 skill${skipped ? `，去重跳过 ${skipped} 个` : ''}　${detail}`);
+    setImp({ ...imp, [repoId]: '' }); setImpPrev({ ...impPrev, [repoId]: null });
+    refreshRepos();
   };
   const [impPrev, setImpPrev] = useState<Record<string, ImportPreviewItem[] | null>>({});
   const [impBusy, setImpBusy] = useState<Record<string, boolean>>({});

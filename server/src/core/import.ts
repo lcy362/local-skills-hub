@@ -27,7 +27,7 @@ export function previewImportDirs(sourceDirs: string[]): ImportPreviewItem[] {
 
 /**
  * 批量导入：把若干外部 skill 目录(及其子级分类)一次性复制进某仓库 skills/。
- * 同名冲突自动加后缀(如 name-2)，避免覆盖。
+ * 同名 skill 已在目标仓库中则跳过（去重），不会重复导入或生成 -2 副本。
  */
 export function importDirs(cfg: ConfigStore, sourceDirs: string[], repoId?: string): ImportResult[] {
   const repo = cfg.data.repos.find((r) => r.id === repoId) ?? cfg.data.repos[0];
@@ -41,9 +41,8 @@ export function importDirs(cfg: ConfigStore, sourceDirs: string[], repoId?: stri
     fs.mkdirSync(skillsRoot, { recursive: true });
     const found = scanDir(abs, 'import', 'nested');
     for (const s of found) {
-      let dest = path.join(skillsRoot, s.name);
-      let n = 1;
-      while (fs.existsSync(dest)) dest = path.join(skillsRoot, `${s.name}-${++n}`);
+      const dest = path.join(skillsRoot, s.name);
+      if (fs.existsSync(dest)) { res.skipped.push(`${s.name}(已存在，去重跳过)`); continue; }
       try {
         fs.cpSync(s.dir, dest, { recursive: true });
         res.imported.push(s.name);
