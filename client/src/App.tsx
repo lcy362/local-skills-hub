@@ -274,6 +274,14 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
       {/* 已有仓库 - 弹窗 */}
       {showRepos && (
         <Modal title="已有仓库" hint="SKILL 唯一事实源" onClose={() => setShowRepos(false)}>
+          <div style={{ margin: '0 0 10px', padding: '8px 10px', background: 'var(--surface-1)', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+            <b style={{ color: 'var(--accent)' }}>🛡 关于标签管理</b><br />
+            <b style={{ color: 'var(--accent)' }}>推荐：用 Skill 文件顶层 tags。</b>
+            标签写在每个 SKILL.md 的 frontmatter 顶层，被 Claude Code、agentskills.io 等 40+ 工具原生读取，随 skill 随 git 一并版本化，可移植性最好。<br />
+            <b style={{ color: 'var(--accent)' }}>也允许：仓库内/仓库外文件（Claude Plugin 方式）。</b>
+            两者都走 plugins/keywords 结构、理由一致——把你自己对 skill 的管理信息与外部 skill 库本体分离开（例如 GitHub 下载的仓库 SKILL.md 是别人的内容，不宜写入自己的归类）。仓库内文件默认 .claude-plugin/marketplace.json 就近归档；仓库外文件可任意选址、彻底分开存放。<br />
+            <span style={{ opacity: 0.8 }}>未配置的仓库，标签仅存本地 config，不落盘到仓库载体。</span>
+          </div>
           {repos.length === 0 && <div className="empty">尚未配置仓库。点「＋ 新增仓库」新建或导入。</div>}
           {repos.map((r) => (
             <div className="repo" key={r.id}>
