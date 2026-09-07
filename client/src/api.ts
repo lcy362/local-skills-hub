@@ -38,3 +38,6 @@ export interface DiagnoseResult {
 export interface ProjectSyncResult { project: string; copied: string[]; removed: string[]; agentLinks: { agent: string; created: string[] }[]; errors: string[] }
 export interface ImportResult { source: string; imported: string[]; skipped: string[] }
 export interface ImportPreviewItem { source: string; layout: string; count: number; error?: string }
+export interface AgentCollectItem { name: string; description?: string; tags: string[]; exists: boolean }
+export interface AgentCollectPreview { agentKey: string; agentName: string; installedDir: string; items: AgentCollectItem[] }
+export interface CollectResult { collected: string[]; skipped: string[] }

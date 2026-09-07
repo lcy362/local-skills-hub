@@ -11,6 +11,7 @@ import { syncActive, diffSync, computeDesired } from '../core/sync.js';
 import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
+import { previewCollect, collectAgentSkill } from '../core/collect.js';
 import { readTags, writeTags } from '../core/repo-tags.js';
 import { diagnose } from '../core/diagnose.js';
 import { pickDirectory, pickFile } from '../core/picker.js';
@@ -87,6 +88,21 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const { path: p } = req.body ?? {};
     if (!p) return res.status(400).json({ error: 'path required' });
     try { res.json(detectLayoutAbs(p)); }
+    catch (e) { res.status(500).json({ error: String(e) }); }
+  });
+
+  // 从 agent 收集归拢 skill 到仓库（仅复制，不动 agent）
+  r.get('/repos/:id/collect/preview', (req, res) => {
+    const repo = cfg.data.repos.find((x) => x.id === req.params.id);
+    if (!repo) return res.status(404).json({ error: 'repo not found' });
+    res.json(previewCollect(cfg, repo));
+  });
+  r.post('/repos/:id/collect', (req, res) => {
+    const repo = cfg.data.repos.find((x) => x.id === req.params.id);
+    if (!repo) return res.status(404).json({ error: 'repo not found' });
+    const { agentKey, names } = req.body ?? {};
+    if (!agentKey) return res.status(400).json({ error: 'agentKey required' });
+    try { res.json(collectAgentSkill(cfg, repo, agentKey, names)); }
     catch (e) { res.status(500).json({ error: String(e) }); }
   });
 

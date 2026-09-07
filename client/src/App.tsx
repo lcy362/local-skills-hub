@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem } from './api';
+import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
 import { HealthView } from './HealthView';
 
 type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
@@ -187,6 +187,31 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
     setImpBusy({ ...impBusy, [repoId]: false });
   };
   const resetImp = (repoId: string) => { setImp({ ...imp, [repoId]: '' }); setImpPrev({ ...impPrev, [repoId]: null }); };
+  // 从 agent 收集归拢 skill 到仓库（仅复制，不动 agent）
+  const [collectOpen, setCollectOpen] = useState<Record<string, boolean>>({});
+  const [collectPrev, setCollectPrev] = useState<Record<string, AgentCollectPreview[] | null>>({});
+  const [collectBusy, setCollectBusy] = useState<Record<string, boolean>>({});
+  const collectable = (a: AgentCollectPreview) => a.items.filter((x) => !x.exists).map((x) => x.name);
+  const openCollect = async (repoId: string) => {
+    setCollectOpen({ ...collectOpen, [repoId]: true });
+    try {
+      const v = await api<AgentCollectPreview[]>(`/repos/${encodeURIComponent(repoId)}/collect/preview`);
+      setCollectPrev({ ...collectPrev, [repoId]: v });
+    } catch (e) { onMsg((e as Error).message); }
+  };
+  const runCollect = async (repoId: string, agentKey: string) => {
+    if (collectBusy[repoId]) return;
+    const list = collectPrev[repoId]?.find((a) => a.agentKey === agentKey);
+    if (!list) return;
+    setCollectBusy({ ...collectBusy, [repoId]: true });
+    try {
+      const r = await api<CollectResult>(`/repos/${encodeURIComponent(repoId)}/collect`, { method: 'POST', body: JSON.stringify({ agentKey, names: collectable(list) }) });
+      onMsg(`从 ${list.agentName} 收集完成 ✓ 新增 ${r.collected.length} 个${r.skipped.length ? `，去重跳过 ${r.skipped.length} 个` : ''}（agent 内的列表未改动）`);
+      setCollectPrev({ ...collectPrev, [repoId]: null }); setCollectOpen({ ...collectOpen, [repoId]: false });
+      refreshRepos();
+    } catch (e) { onMsg((e as Error).message); }
+    setCollectBusy({ ...collectBusy, [repoId]: false });
+  };
   const skills = state?.skills ?? [];
   const sources = Array.from(new Set(skills.map((s) => s.source)));
   const allTags = Array.from(new Set(skills.flatMap((s) => s.tags))).sort();
@@ -350,6 +375,39 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
                       <button className="btn btn--ghost" onClick={() => resetImp(r.id)}>清空 &amp; 重填</button>
                     </div>
                   </div>
+                )}
+              </div>
+              <div className="repo__import">
+                <div className="repo__import-label">从 agent 收集归拢 skill（仅复制进仓库，不动 agent 里的列表）</div>
+                {!collectOpen[r.id] ? (
+                  <button className="btn btn--ghost btn--sm" onClick={() => openCollect(r.id)}>⬇ 从 agent 收集…</button>
+                ) : collectPrev[r.id] == null ? (
+                  <span className="panel__hint">正在扫描已安装 agent…</span>
+                ) : collectPrev[r.id]!.length === 0 ? (
+                  <span className="panel__hint">未发现已安装的 agent / skill</span>
+                ) : (
+                  collectPrev[r.id]!.map((a) => {
+                    const names = collectable(a);
+                    return (
+                      <div className="repo__collect" key={a.agentKey}>
+                        <div className="formline" style={{ alignItems: 'center' }}>
+                          <b>{a.agentName}</b>
+                          <span className="panel__hint" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.installedDir}</span>
+                          <button className="btn btn--primary btn--sm" disabled={collectBusy[r.id] || names.length === 0} onClick={() => runCollect(r.id, a.agentKey)}>收集 {names.length} 个</button>
+                        </div>
+                        <ul style={{ margin: '6px 0 0', padding: 0, listStyle: 'none' }}>
+                          {a.items.map((it) => (
+                            <li key={`${a.agentKey}:${it.name}`} className="repo__detect-row">
+                              <span className="repo__detect-path">{it.name}</span>
+                              {it.exists
+                                ? <span className="repo__detect-status is-bad">已存在 · 去重跳过</span>
+                                : <span className="repo__detect-status is-ok">可收集</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
