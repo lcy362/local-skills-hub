@@ -192,6 +192,10 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const skills = state?.skills ?? [];
   const sources = Array.from(new Set(skills.map((s) => s.source)));
   const allTags = Array.from(new Set(skills.flatMap((s) => s.tags))).sort();
+  const tagConfigured = repos.filter((r) => r.tags).length;
+  const tagUnconfigured = repos.length - tagConfigured;
+  const srcOf = (src: string) => repos.find((r) => r.id === src);
+  const tagSrcText = (m: string) => ({ frontmatter: 'skill 文件 frontmatter', ['repo-file']: '仓库内文件', ['external-file']: '仓库外文件' } as Record<string, string>)[m] ?? '自动';
   const filtered = skills.filter((s) =>
     (srcSel.length === 0 || srcSel.includes(s.source)) &&
     (tagSel.length === 0 || tagSel.some((t) => s.tags.includes(t)))
@@ -204,6 +208,11 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
         {s.tags.map((t) => <button key={t} className="tag" onClick={() => delTag(s.id, t)}>{t} ✕</button>)}
         <QuickTag onAdd={(t) => addTag(s.id, t)} />
       </div>
+      {(() => { const rp = srcOf(s.source); if (!rp) return null; const cfg = rp.tags; return (
+        <button className={`skill-tsrc${cfg ? '' : ' is-warn'}`} onClick={() => setShowRepos(true)} title="点击为所属仓库配置标签管理方式">
+          {cfg ? `标签源：${tagSrcText(cfg.mode)}` : '⚠ 标签暂存本地，点击配置标签来源'}
+        </button>
+      ); })()}
     </>
   );
   return (
@@ -218,6 +227,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
             <button className={`seg__opt${view === 'card' ? ' is-on' : ''}`} onClick={() => setView('card')}>▦ 卡片</button>
           </div>
           <div className="panel__actions">
+            <button className={`btn${tagUnconfigured ? ' is-warn' : ''}`} onClick={() => setShowRepos(true)}>★ 标签管理{repos.length ? ` ${tagConfigured}/${repos.length}` : ''}{tagUnconfigured ? ' · ⚠' : ''}</button>
             <button className="btn" onClick={() => setShowRepos(true)}>已有仓库{repos.length > 0 && ` · ${repos.length}`}</button>
             <button className="btn btn--primary" onClick={() => setShowAdd(true)}>＋ 新增仓库</button>
           </div>
