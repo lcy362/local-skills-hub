@@ -119,9 +119,9 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const [tFile, setTFile] = useState('');
   const tagOpts: { v: typeof tMode; label: string; desc: string }[] = [
     { v: 'auto', label: '自动', desc: '沿用仓库自带标签（SKILL.md 或 marketplace.json）；无自带则为空' },
-    { v: 'frontmatter', label: 'skill 文件', desc: '在每个 SKILL.md frontmatter 的 tags 里维护' },
-    { v: 'repo-file', label: '仓库内文件', desc: '仓库内单独标签文件（默认 .claude-plugin/marketplace.json，可另填路径）' },
-    { v: 'external-file', label: '仓库外文件', desc: '仓库外单独标签文件，需填写绝对路径' },
+    { v: 'frontmatter', label: 'skill 文件', desc: '（推荐）在每个 SKILL.md frontmatter 顶层 tags 里维护' },
+    { v: 'repo-file', label: '仓库内文件', desc: '仓库内单独标签文件（默认 .claude-plugin/marketplace.json，走 Claude Plugin 的 plugins/keywords 结构，可另填路径）' },
+    { v: 'external-file', label: '仓库外文件', desc: '仓库外单独标签文件，同样走 Claude Plugin 的 plugins/keywords 结构，需填写绝对路径' },
   ];
   const buildTags = (): { mode: 'frontmatter' | 'repo-file' | 'external-file'; file?: string } | undefined => tMode === 'auto' ? undefined : { mode: tMode, file: tFile.trim() || undefined };
   const [tagDraft, setTagDraft] = useState<Record<string, { mode: string; file: string }>>({});
@@ -305,7 +305,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
                       </div>
                       {(d.mode === 'repo-file' || d.mode === 'external-file') && (
                         <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                          <input className="field" style={{ flex: 1 }} placeholder={d.mode === 'external-file' ? '仓库外标签文件绝对路径（{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={d.file} onChange={(e) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: e.target.value } })} />
+                          <input className="field" style={{ flex: 1 }} placeholder={d.mode === 'external-file' ? '仓库外标签文件绝对路径（Claude Plugin plugins/keywords 结构）' : '仓库内标签文件（JSON 留空默认 .claude-plugin/marketplace.json）'} value={d.file} onChange={(e) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: e.target.value } })} />
                           {d.mode === 'external-file' && <button className="btn btn--ghost" onClick={() => pickFile((v) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: v } }))}>📁 选择文件…</button>}
                         </div>
                       )}
@@ -393,10 +393,16 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
             <div className="panel__hint" style={{ marginTop: 6, opacity: 0.8 }}>{tagOpts.find((o) => o.v === tMode)!.desc}</div>
             {(tMode === 'repo-file' || tMode === 'external-file') && (
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                <input className="field" style={{ flex: 1 }} placeholder={tMode === 'external-file' ? '仓库外标签文件绝对路径（必填，{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={tFile} onChange={(e) => setTFile(e.target.value)} />
+                <input className="field" style={{ flex: 1 }} placeholder={tMode === 'external-file' ? '仓库外标签文件绝对路径（必填，Claude Plugin plugins/keywords 结构）' : '仓库内标签文件（JSON 留空默认 .claude-plugin/marketplace.json）'} value={tFile} onChange={(e) => setTFile(e.target.value)} />
                 {tMode === 'external-file' && <button className="btn btn--ghost" onClick={() => pickFile(setTFile)}>📁 选择文件…</button>}
               </div>
             )}
+            <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--surface-1)', border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.6 }}>
+              <b style={{ color: 'var(--accent)' }}>🛡 推荐：用 Skill 文件顶层 tags。</b>
+              这是最贴合开源生态、也最有希望统一生态的方式：标签写在每个 SKILL.md 的 frontmatter 顶层，会被 Claude Code、agentskills.io 等 40+ 工具原生读取，随 skill 目录移动、随 git 一并版本化，可移植性最好，不依赖任何特定平台。
+              <br /><b style={{ color: 'var(--accent)' }}>也允许：仓库内/仓库外文件（采用 Claude Plugin 方式）。</b>
+              两者都走 Claude 生态的 plugins/keywords 结构、理由一致——<b>把你自己对 skill 的管理信息，与外部 skill 库本体分离开</b>。例如从 GitHub 下载一个 skill 仓库时，里面的 SKILL.md 是别人的内容、还会随上游更新；你对这批 skill 的归类分类不想写进那些文件。放到<b>仓库内</b>文件（默认 .claude-plugin/marketplace.json，Claude 生态也在用）就近归档；或放到<b>仓库外</b>的任意文件，让标签与仓库本体彻底分开存放。本地归类与外部本体互不干扰。
+            </div>
           </div>
         </Modal>
       )}

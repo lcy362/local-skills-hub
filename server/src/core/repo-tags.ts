@@ -2,8 +2,8 @@
  * 仓库标签来源：
  * - auto:         检测仓库是否自带标签载体（frontmatter tags / .claude-plugin/marketplace.json），检测到即沿用其方式；否则视为无自带（空标签）
  * - frontmatter:  从每个 skill 的 SKILL.md frontmatter tags 维护
- * - repo-file:    仓库内单独标签文件维护（默认 .claude-plugin/marketplace.json；也可由 user 指定相对路径，结构为 { skillName: [tags] }）
- * - external-file:仓库外单独标签文件维护（user 指定绝对路径，结构为 { skillName: [tags] }）
+ * - repo-file:    仓库内单独标签文件维护（默认 .claude-plugin/marketplace.json，Claude Plugin 结构：plugins[].keywords；也可由 user 指定路径）
+ * - external-file:仓库外单独标签文件维护（user 指定绝对路径，同样采用 Claude Plugin 的 plugins/keywords 结构）
  *
  * 约定：设定了来源的仓库，标签“以所选来源为唯一基准”，读写都作用于该载体。
  */
@@ -67,16 +67,25 @@ function writeMarketplace(file: string, skillName: string, tags: string[]) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf-8');
 }
 
-/** 该仓库的标签载体解析出的 { skillName: [tags] }（含 frontmatter 探测） */
+/** 以 Claude 生态方式写回（JSON→marketplace plugins[].keywords；YAML→skill→tags 映射） */
+function writeClaudeStyle(file: string, skillName: string, tags: string[]) {
+  if (isJson(file)) {
+    writeMarketplace(file, skillName, tags);
+  } else {
+    const map = readTagMap(file) ?? {}; map[skillName] = tags; writeTagMap(file, map);
+  }
+}
+
+/** 该仓库的标签载体解析出的 { skillName: [tags] }（含 frontmatter 探测）；统一用 readMarketplace 以兼容 Claude plugins 结构 */
 function resolveMap(repo: Repo, name: string, dir: string): Record<string, string[]> | null {
   const m = repo.tags?.mode;
   const base = repo.root || repo.path;
   if (m === 'repo-file') {
     const f = repo.tags?.file ? (path.isAbsolute(repo.tags.file) ? repo.tags.file : path.join(repo.path, repo.tags.file)) : path.join(base, MARKETPLACE_REL);
-    return readTagMap(f) ?? {};
+    return readMarketplace(f);
   }
   if (m === 'external-file') {
-    return repo.tags?.file ? readTagMap(repo.tags.file) ?? {} : {};
+    return repo.tags?.file ? readMarketplace(repo.tags.file) : {};
   }
   // frontmatter/auto 的 frontmatter 分支
   return { [name]: readSkill(dir)?.tags ?? [] };
@@ -116,16 +125,12 @@ export function writeTags(repo: Repo, name: string, dir: string, tags: string[])
   const base = repo.root || repo.path;
   if (resolved === 'repo-file') {
     const f = repo.tags?.file ? (path.isAbsolute(repo.tags.file) ? repo.tags.file : path.join(repo.path, repo.tags.file)) : path.join(base, MARKETPLACE_REL);
-    if (repo.tags?.file || path.basename(f) !== 'marketplace.json') {
-      const map = readTagMap(f) ?? {}; map[name] = tags; writeTagMap(f, map);
-    } else {
-      writeMarketplace(f, name, tags);
-    }
+    writeClaudeStyle(f, name, tags);
     return true;
   }
   if (resolved === 'external-file') {
     if (!repo.tags?.file) return false;
-    const map = readTagMap(repo.tags.file) ?? {}; map[name] = tags; writeTagMap(repo.tags.file, map);
+    writeClaudeStyle(repo.tags.file, name, tags);
     return true;
   }
   return false;
