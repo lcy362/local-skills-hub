@@ -292,8 +292,13 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
   box-shadow: 0 0 0 3px oklch(0.72 0.15 250 / 0.18);
 }
 /* card-adapted typography (scoped so list rows stay untouched) */
-.card__inner .row__title { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; min-width: 0; }
-.card__inner .row__note { margin-top: var(--space-1); }
+.card__inner .row__title { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; min-width: 0; line-height: 1.3; }
+/* description: fixed 3-line slot so cards stay equal height regardless of copy length */
+.card__inner .row__note {
+  margin-top: var(--space-1); line-height: 1.55;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+  overflow: hidden; min-height: calc(3 * 1.55 * var(--text-xs));
+}
 .card__inner .skill-tags {
   margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
   padding-top: var(--space-3); border-top: 1px solid var(--color-line-soft);
