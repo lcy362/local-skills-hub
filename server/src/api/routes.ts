@@ -16,9 +16,11 @@ import { diagnose } from '../core/diagnose.js';
 import { pickDirectory, pickFile } from '../core/picker.js';
 import { Repo, ForeignSource } from '../config/types.js';
 
-export function makeRouter(cfg: ConfigStore): Router {
+export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }): Router {
   const r = Router();
   r.use(express.json({ limit: '2mb' }));
+  // 结构性变更后自动同步活跃 agent（无需点「立即同步」），由入口注入实现
+  const touch = () => opts?.onChanged?.();
 
   const library = () => scanAll(cfg.data.repos, cfg.data.foreignSources);
 
@@ -57,11 +59,13 @@ export function makeRouter(cfg: ConfigStore): Router {
     if (cfg.data.repos.some((x) => x.id === id)) return res.status(409).json({ error: `repo ${id} 已存在` });
     cfg.data.repos.push({ id, path: p, layout: layout ?? 'flat', root: root ?? undefined, tags: tags ?? undefined });
     cfg.save();
+    touch();
     res.json(cfg.data.repos);
   });
   r.delete('/repos/:id', (req, res) => {
     cfg.data.repos = cfg.data.repos.filter((x) => x.id !== req.params.id);
     cfg.save();
+    touch();
     res.json(cfg.data.repos);
   });
   r.put('/repos/:id', (req, res) => {
@@ -94,11 +98,13 @@ export function makeRouter(cfg: ConfigStore): Router {
     if (!body.id || !body.path) return res.status(400).json({ error: 'id/path required' });
     cfg.data.foreignSources.push({ ...body, layout: body.layout ?? 'nested', linked: body.linked ?? true });
     cfg.save();
+    touch();
     res.json(cfg.data.foreignSources);
   });
   r.delete('/sources/:id', (req, res) => {
     cfg.data.foreignSources = cfg.data.foreignSources.filter((x) => x.id !== req.params.id);
     cfg.save();
+    touch();
     res.json(cfg.data.foreignSources);
   });
 
@@ -117,7 +123,9 @@ export function makeRouter(cfg: ConfigStore): Router {
   r.get('/activeAgents', (_req, res) => res.json(cfg.data.activeAgents));
   r.put('/activeAgents', (req, res) => {
     const keys = Array.isArray(req.body) ? req.body : req.body?.agents;
-    res.json(active.set(cfg, keys ?? []));
+    const out = active.set(cfg, keys ?? []);
+    touch();
+    res.json(out);
   });
 
   // ---- skills / tags ----
@@ -133,13 +141,14 @@ export function makeRouter(cfg: ConfigStore): Router {
     if (repo?.tags) {
       const lib = library();
       const skill = lib.skills.find((s) => s.id === id);
-      if (skill && writeTags(repo, skill.name, skill.dir, tags)) return res.json({ tags, via: 'source' });
+      if (skill && writeTags(repo, skill.name, skill.dir, tags)) { touch(); return res.json({ tags, via: 'source' }); }
       // 载体写回失败（如 SKILL.md 无 frontmatter）→ 回退 config 覆盖
     }
     const meta = cfg.data.skillMeta[id] ?? { tags: [] };
     meta.tags = tags;
     cfg.data.skillMeta[id] = meta;
     cfg.save();
+    touch();
     res.json(meta);
   });
 
@@ -169,6 +178,7 @@ export function makeRouter(cfg: ConfigStore): Router {
   });
   r.delete('/presets/:name', (req, res) => {
     presets.remove(cfg, req.params.name);
+    touch();
     res.json({ ok: true });
   });
 
@@ -181,6 +191,7 @@ export function makeRouter(cfg: ConfigStore): Router {
     const lib = library();
     const results = applyAdoption(cfg, lib, req.body?.decisions ?? []);
     cfg.save();
+    touch();
     res.json({ results });
   });
 
@@ -220,7 +231,9 @@ export function makeRouter(cfg: ConfigStore): Router {
   r.post('/import', (req, res) => {
     const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : [];
     const repoId = req.body?.repoId;
-    res.json(importDirs(cfg, dirs, repoId));
+    const result = importDirs(cfg, dirs, repoId);
+    touch();
+    res.json(result);
   });
   r.get('/diagnose', (_req, res) => {
     try {

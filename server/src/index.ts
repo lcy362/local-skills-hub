@@ -10,8 +10,6 @@ const PORT = Number(process.env.PORT ?? 8787);
 const app = express();
 const cfg = new ConfigStore();
 
-app.use('/api', makeRouter(cfg));
-
 // 定时/自动同步入口
 function resync() {
   const lib = scanAll(cfg.data.repos, cfg.data.foreignSources);
@@ -21,7 +19,14 @@ function resync() {
 export { resync };
 
 const watcher = new CopyWatcher();
-watcher.start(cfg, () => { resync(); });
+const onChange = () => resync();
+
+app.use('/api', makeRouter(cfg, {
+  // 结构性变更（新增/删除仓库、导入 skill、收编、改 preset/标签/活跃集）后自动同步活跃 agent，无需点「立即同步」；
+  // 同时重建 watcher 以纳入变化后的仓库 roots，保证后续文件级改动也能被监听。
+  onChanged: () => { resync(); watcher.start(cfg, onChange); },
+}));
+watcher.start(cfg, onChange);
 
 app.listen(PORT, () => {
   console.log(`[skills-hub] server http://localhost:${PORT}`);
