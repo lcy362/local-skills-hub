@@ -17,3 +17,17 @@ export function pickDirectory(): string {
   if (!p) throw new Error('未选择目录');
   return p;
 }
+
+/** 打开系统原生文件选择器，返回所选文件绝对路径（用于仓库外标签文件）。其余同 pickDirectory。 */
+export function pickFile(): string {
+  if (process.platform !== 'darwin') {
+    throw new Error(`当前平台 ${process.platform} 原生文件选择器暂不可用，请手动输入路径`);
+  }
+  const out = execFileSync('osascript', [
+    '-e',
+    'POSIX path of (choose file with prompt "Skills Hub — 选择标签文件")',
+  ], { encoding: 'utf8', timeout: 120000 });
+  const p = out.trim();
+  if (!p) throw new Error('未选择文件');
+  return p;
+}

@@ -13,7 +13,7 @@ import { addProject, syncProject } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
 import { readTags, writeTags } from '../core/repo-tags.js';
 import { diagnose } from '../core/diagnose.js';
-import { pickDirectory } from '../core/picker.js';
+import { pickDirectory, pickFile } from '../core/picker.js';
 import { Repo, ForeignSource } from '../config/types.js';
 
 export function makeRouter(cfg: ConfigStore): Router {
@@ -41,6 +41,11 @@ export function makeRouter(cfg: ConfigStore): Router {
   // ---- filesystem ----
   r.post('/filesystem/pick', (_req, res) => {
     try { res.json({ path: pickDirectory() }); }
+    catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
+  r.post('/filesystem/pick-file', (_req, res) => {
+    try { res.json({ path: pickFile() }); }
     catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
 

@@ -85,6 +85,13 @@ async function pickDir(set: (v: string) => void) {
   } catch (e) { window.alert((e as Error).message); }
 }
 
+async function pickFile(set: (v: string) => void) {
+  try {
+    const r = await api<{ path: string }>('/filesystem/pick-file', { method: 'POST' });
+    if (r.path) set(r.path);
+  } catch (e) { window.alert((e as Error).message); }
+}
+
 function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
   switch (t) {
     case 'library': return `${s?.skills.length ?? 0} 个 skill · ${new Set(s?.skills.map((x) => x.source)).size ?? 0} 个来源`;
@@ -290,7 +297,10 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
                         ))}
                       </div>
                       {(d.mode === 'repo-file' || d.mode === 'external-file') && (
-                        <input className="field" style={{ marginTop: 6 }} placeholder={d.mode === 'external-file' ? '仓库外标签文件绝对路径（{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={d.file} onChange={(e) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: e.target.value } })} />
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                          <input className="field" style={{ flex: 1 }} placeholder={d.mode === 'external-file' ? '仓库外标签文件绝对路径（{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={d.file} onChange={(e) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: e.target.value } })} />
+                          {d.mode === 'external-file' && <button className="btn btn--ghost" onClick={() => pickFile((v) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: v } }))}>📁 选择文件…</button>}
+                        </div>
                       )}
                       <div className="formline" style={{ marginTop: 8 }}>
                         <button className="btn btn--primary btn--sm" onClick={() => { saveRepoTags(r.id); setTagDraft((p) => { const c = { ...p }; delete c[r.id]; return c; }); }}>保存</button>
@@ -375,7 +385,10 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
             </div>
             <div className="panel__hint" style={{ marginTop: 6, opacity: 0.8 }}>{tagOpts.find((o) => o.v === tMode)!.desc}</div>
             {(tMode === 'repo-file' || tMode === 'external-file') && (
-              <input className="field" style={{ marginTop: 8 }} placeholder={tMode === 'external-file' ? '仓库外标签文件绝对路径（必填，{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={tFile} onChange={(e) => setTFile(e.target.value)} />
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <input className="field" style={{ flex: 1 }} placeholder={tMode === 'external-file' ? '仓库外标签文件绝对路径（必填，{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={tFile} onChange={(e) => setTFile(e.target.value)} />
+                {tMode === 'external-file' && <button className="btn btn--ghost" onClick={() => pickFile(setTFile)}>📁 选择文件…</button>}
+              </div>
             )}
           </div>
         </Modal>
