@@ -67,6 +67,10 @@ export default function App() {
             <button className="btn btn--primary" onClick={runSync} title="把资产库的 skill 立即投放到各活跃 Agent 的目录，让改动立刻生效">立即同步</button>
           </div>
         </header>
+        <div className="topbar__tips">
+          <span><b>刷新</b>：重读配置与目录，只刷新页面数据，不改动任何文件。</span>
+          <span><b>立即同步</b>：把资产库启用的 skill 马上投放到各活跃 Agent 的目录，让改动立刻生效。</span>
+        </div>
         <div className="content">
           {msg && <div className="msgbar">{msg}</div>}
           {tab === 'library' && <Library state={state} onLoad={reload} onMsg={setMsg} />}

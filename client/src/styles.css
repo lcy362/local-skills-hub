@@ -155,6 +155,8 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
 }
 .topbar__title { font-size: var(--text-xl); margin: 0; }
 .topbar__sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-ink-soft); }
+.topbar__tips { display: flex; flex-wrap: wrap; column-gap: var(--space-5); row-gap: var(--space-1); padding: 0 var(--space-4) var(--space-2); font-size: var(--text-2xs); color: var(--color-ink-soft); }
+.topbar__tips b { font-weight: 600; color: var(--color-ink); }
 .topbar__actions { margin-left: auto; display: flex; gap: var(--space-2); }
 .stagedot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-good); box-shadow: 0 0 0 3px oklch(0.74 0.14 160 / 0.15); }
 .stagedot.is-paused { background: var(--color-warn); box-shadow: 0 0 0 3px oklch(0.80 0.14 78 / 0.15); }
