@@ -484,19 +484,19 @@ function PresetsView({ state, onLoad }: { state: StateView | null; onLoad: () =>
   return (
     <div className="panel">
       <div className="panel__head">
-        <h2 className="panel__title">Presets</h2>
-        <span className="panel__hint">激活后实时同步到活跃 agent</span>
-        <div className="panel__actions"><button className="btn" onClick={add}>＋ 新建</button></div>
+        <h2 className="panel__title">技能预设</h2>
+        <span className="panel__hint">把一组常用 skill 打包成「套餐」，激活后立即投放到活跃的 Agent</span>
+        <div className="panel__actions"><button className="btn" onClick={add}>＋ 新建套餐</button></div>
       </div>
       {state?.presets.map((p) => (
-        <div className={`row${p.active ? ' is-active' : ''}`} key={p.name}>
-          <div className="row__main">
-            <div className="row__title">
-              {p.name}
-              {p.active ? <span className="badge badge--state">激活中</span> : <span className="badge badge--off">未激活</span>}
-              <span className="row__note">{p.skills.length} skills</span>
-            </div>
-            <div className="row__note">{p.skills.join('、') || '（空，在下框勾选 skill）'}</div>
+          <div className={`row${p.active ? ' is-active' : ''}`} key={p.name}>
+            <div className="row__main">
+              <div className="row__title">
+                {p.name}
+                {p.active ? <span className="badge badge--state">激活中</span> : <span className="badge badge--off">未激活</span>}
+                <span className="row__note">{p.skills.length} 个 skill</span>
+              </div>
+              <div className="row__note">{p.skills.join('、') || '（空套餐：勾选下方 skill 加入）'}</div>
             <div className="checklist" style={{ marginTop: 8 }}>
               {state?.skills.slice(0, 300).map((s) => (
                 <label key={s.id}>
@@ -592,8 +592,8 @@ function IntegrateView({ onMsg }: { onMsg: (m: string) => void }) {
   return (
     <div className="panel">
       <div className="panel__head">
-        <h2 className="panel__title">技能收编</h2>
-        <span className="panel__hint">{groups.length} 组 · 同名多来源需选保留项</span>
+        <h2 className="panel__title">去重收编</h2>
+        <span className="panel__hint">同一个 skill 也可能来自多个目录/仓库。这里让你为每组选一个「保留版」，其余不再重复投放。选好比后点「应用所选收编」。</span>
         <div className="panel__actions">
           <button className="btn" onClick={load}>刷新预览</button>
           <button className="btn btn--primary" onClick={apply}>应用所选收编</button>
