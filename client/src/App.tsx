@@ -139,10 +139,8 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const [view, setView] = useState<'list' | 'card'>('card');
   const [srcSel, setSrcSel] = useState<string[]>([]);
   const [tagSel, setTagSel] = useState<string[]>([]);
-  const [srcSingle, setSrcSingle] = useState(false);
-  const [tagSingle, setTagSingle] = useState(false);
-  const toggleSel = (sel: string[], v: string, single: boolean) =>
-    sel.includes(v) ? (single ? [] : sel.filter((x) => x !== v)) : (single ? [v] : [...sel, v]);
+  const toggleSel = (sel: string[], v: string) =>
+    sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v];
   const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
   useEffect(() => { api<RepoView[]>('/repos').then(setRepos); }, []);
   const setTags = async (id: string, tags: string[]) => {
@@ -236,30 +234,24 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
           <div className="facet">
             <div className="facet__head">
               <span className="facet__label">来源</span>
-              <div className="seg seg--sm" role="group" aria-label="来源选择模式">
-                <button className={`seg__opt${srcSingle ? ' is-on' : ''}`} onClick={() => setSrcSingle(true)}>单选</button>
-                <button className={`seg__opt${!srcSingle ? ' is-on' : ''}`} onClick={() => setSrcSingle(false)}>多选</button>
-              </div>
+              <span className="panel__hint">多选</span>
             </div>
             <div className="facet__opts">
               <button className={`chip${srcSel.length === 0 ? ' is-on' : ''}`} onClick={() => setSrcSel([])}>全部</button>
               {sources.map((s) => (
-                <button key={s} className={`chip${srcSel.includes(s) ? ' is-on' : ''}`} onClick={() => setSrcSel((prev) => toggleSel(prev, s, srcSingle))}>{s}</button>
+                <button key={s} className={`chip${srcSel.includes(s) ? ' is-on' : ''}`} onClick={() => setSrcSel((prev) => toggleSel(prev, s))}>{s}</button>
               ))}
             </div>
           </div>
           <div className="facet">
             <div className="facet__head">
               <span className="facet__label">标签</span>
-              <div className="seg seg--sm" role="group" aria-label="标签选择模式">
-                <button className={`seg__opt${tagSingle ? ' is-on' : ''}`} onClick={() => setTagSingle(true)}>单选</button>
-                <button className={`seg__opt${!tagSingle ? ' is-on' : ''}`} onClick={() => setTagSingle(false)}>多选</button>
-              </div>
+              <span className="panel__hint">多选</span>
             </div>
             <div className="facet__opts">
               <button className={`chip${tagSel.length === 0 ? ' is-on' : ''}`} onClick={() => setTagSel([])}>全部</button>
               {allTags.map((t) => (
-                <button key={t} className={`chip${tagSel.includes(t) ? ' is-on' : ''}`} onClick={() => setTagSel((prev) => toggleSel(prev, t, tagSingle))}>{t}</button>
+                <button key={t} className={`chip${tagSel.includes(t) ? ' is-on' : ''}`} onClick={() => setTagSel((prev) => toggleSel(prev, t))}>{t}</button>
               ))}
             </div>
           </div>
