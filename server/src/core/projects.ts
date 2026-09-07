@@ -63,25 +63,25 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
     } catch { /* skip */ }
   }
 
-  // 其他 agent 的项目级目录软链到 .agents
+  // 其他 agent 的项目级目录软链到 .agents/skills（对整目录建一条软链，共享同一份副本，无需每个 skill 一条）
   for (const a of listAgents(cfg.data)) {
     if (!a.project) continue;
     if (cfg.data.agents[a.key]?.sync === 'copy') continue; // 复制模式 agent 也复制本体到各自项目目录
-    const target = path.join(agentsRoot);
+    const target = agentsRoot;
     const linkDir = resolveProjectDir(a, projectPath, cfg.data.agents[a.key]?.projectDir);
     if (!linkDir) continue;
-    fs.mkdirSync(linkDir, { recursive: true });
-    const created: string[] = [];
-    for (const entry of seen) {
-      const lp = path.join(linkDir, entry);
-      const src = path.join(target, entry);
-      if (!fs.existsSync(src)) continue;
-      if (fs.existsSync(lp) && fs.lstatSync(lp).isSymbolicLink() && fs.realpathSync(lp) === fs.realpathSync(src)) continue;
-      if (fs.existsSync(lp)) fs.rmSync(lp, { recursive: true, force: true });
-      fs.symlinkSync(src, lp, 'dir');
-      created.push(entry);
+    fs.mkdirSync(path.dirname(linkDir), { recursive: true });
+    if (fs.existsSync(linkDir) && fs.lstatSync(linkDir).isSymbolicLink()) {
+      // 已是软链：指向正确则跳过，否则重建
+      if (fs.realpathSync(linkDir) === fs.realpathSync(target)) continue;
+      fs.rmSync(linkDir, { recursive: true, force: true });
+    } else if (fs.existsSync(linkDir)) {
+      // 非软链的真实目录：不覆盖，避免误删用户手动放置的 skill
+      res.errors.push(`${a.key}: 项目目录已存在真实内容（${linkDir}），跳过软链`);
+      continue;
     }
-    res.agentLinks.push({ agent: a.key, created });
+    fs.symlinkSync(target, linkDir, 'dir');
+    res.agentLinks.push({ agent: a.key, created: [...seen] });
   }
   return res;
 }

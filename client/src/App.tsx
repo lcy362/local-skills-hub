@@ -457,7 +457,10 @@ function AgentsView({ agents, onLoad }: { agents: AgentView[]; onLoad: () => voi
             <button className={`btn ${a.active ? 'btn--primary' : ''} btn--sm`} onClick={() => setActive(a.key)}>
               {a.active ? '取消活跃' : '设为活跃'}
             </button>
-            <button className="btn btn--ghost btn--sm" onClick={() => toggleMode(a.key, a.sync)}>
+            <button className="btn btn--ghost btn--sm" onClick={() => toggleMode(a.key, a.sync)}
+              title={a.sync === 'symlink'
+                ? '当前为软链：每个 skill 在 agent 目录建一个目录软链，指向资产库本体，改动即时生效且不占多余空间'
+                : '当前为复制：把每个 skill 本体复制到 agent 目录，独立可改、但复制多份'} >
               {a.sync === 'symlink' ? '切换为复制' : '切换为软链'}
             </button>
           </div>
@@ -534,7 +537,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
   };
   const sync = async (i: number) => {
     const r = await api<ProjectSyncResult>(`/projects/${i}/sync`, { method: 'POST', body: JSON.stringify({}) });
-    onMsg(`复制 ${r.copied.join(',') || '—'} · 移除 ${r.removed.length} · 代理软链 ${r.agentLinks.filter((x) => x.created.length).length} 个`);
+    onMsg(`复制 ${r.copied.join(',') || '—'} · 移除 ${r.removed.length} · 共享软链 ${r.agentLinks.filter((x) => x.created.length).length} 个 agent（每个 agent 将项目 skill 目录整体软链指向 .agents/skills）`);
     reload();
   };
   const toggleTag = async (i: number, t: string) => {
@@ -561,7 +564,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
                 <span key={s.id} className="tag tag--matched">✓ {s.name}</span>)}
             </div>
           </div>
-          <div className="row__actions"><button className="btn btn--sm" onClick={() => sync(i)}>同步 .agents</button></div>
+          <div className="row__actions"><button className="btn btn--sm" onClick={() => sync(i)} title="把匹配标签的 skill 复制到本项目 .agents/skills，并将各 agent 的项目 skill 目录整体软链指向它（每个 agent 仅一条目录级软链）">同步 .agents</button></div>
         </div>
       ))}
     </div>
