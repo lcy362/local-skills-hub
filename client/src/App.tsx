@@ -111,6 +111,15 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
     { v: 'external-file', label: '仓库外文件', desc: '仓库外单独标签文件，需填写绝对路径' },
   ];
   const buildTags = (): { mode: 'frontmatter' | 'repo-file' | 'external-file'; file?: string } | undefined => tMode === 'auto' ? undefined : { mode: tMode, file: tFile.trim() || undefined };
+  const [tagDraft, setTagDraft] = useState<Record<string, { mode: string; file: string }>>({});
+  const tagModeLabel: Record<string, string> = { 'auto': '自动', 'frontmatter': 'skill 文件', 'repo-file': '仓库内文件', 'external-file': '仓库外文件' };
+  const saveRepoTags = async (repoId: string) => {
+    const d = tagDraft[repoId] ?? { mode: 'auto', file: '' };
+    const tags = d.mode === 'auto' ? null : { mode: d.mode, file: d.file.trim() || undefined };
+    await api(`/repos/${encodeURIComponent(repoId)}`, { method: 'PUT', body: JSON.stringify({ tags }) });
+    refreshRepos(); onLoad();
+  };
+  const clearRepoTags = async (repoId: string) => { await api(`/repos/${encodeURIComponent(repoId)}`, { method: 'PUT', body: JSON.stringify({ tags: null }) }); refreshRepos(); onLoad(); };
   const [imp, setImp] = useState<Record<string, string>>({});
   const [showRepos, setShowRepos] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -124,6 +133,11 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const refreshRepos = async () => { await api<RepoView[]>('/repos').then(setRepos); onLoad(); };
   useEffect(() => { api<RepoView[]>('/repos').then(setRepos); }, []);
   const setTags = async (id: string, tags: string[]) => {
+    const s = state?.skills.find((x) => x.id === id);
+    const repo = s ? repos.find((r) => r.id === s.source) : undefined;
+    if (repo && !repo.tags) {
+      onMsg(`仓库「${repo.id}」尚未配置标签管理方式，标签将仅存本地（config）。建议到「已有仓库」中为该仓库配置标签来源，才能持久化到仓库载体。`);
+    }
     await api(`/skills/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ tags }) }); onLoad();
   };
   const addTag = async (id: string, tag: string) => {
@@ -259,6 +273,34 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
                 </div>
                 <button className="btn btn--danger btn--sm" onClick={async () => { await api(`/repos/${r.id}`, { method: 'DELETE' }); refreshRepos(); }}>删除</button>
               </div>
+              {(() => { const d = tagDraft[r.id] ?? { mode: r.tags?.mode ?? 'auto', file: r.tags?.file ?? '' }; const editing = tagDraft[r.id] !== undefined; return (
+                <div className="repo__tags">
+                  <div className="formline" style={{ margin: '8px 0 0', alignItems: 'center' }}>
+                    <span className="repo__import-label" style={{ margin: 0 }}>标签来源：</span>
+                    <span className="badge">{r.tags ? tagModeLabel[r.tags.mode] : '未配置（存本地 config）'}</span>
+                    {!editing && (
+                      <button className="btn btn--ghost btn--sm" onClick={() => setTagDraft({ ...tagDraft, [r.id]: d })}>{r.tags ? '修改' : '配置'}</button>
+                    )}
+                  </div>
+                  {editing && (
+                    <>
+                      <div className="formline" style={{ marginTop: 6 }}>
+                        {tagOpts.map((o) => (
+                          <button key={o.v} className={`chip${d.mode === o.v ? ' is-on' : ''}`} onClick={() => setTagDraft({ ...tagDraft, [r.id]: { ...d, mode: o.v } })}>{o.label}</button>
+                        ))}
+                      </div>
+                      {(d.mode === 'repo-file' || d.mode === 'external-file') && (
+                        <input className="field" style={{ marginTop: 6 }} placeholder={d.mode === 'external-file' ? '仓库外标签文件绝对路径（{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={d.file} onChange={(e) => setTagDraft({ ...tagDraft, [r.id]: { ...d, file: e.target.value } })} />
+                      )}
+                      <div className="formline" style={{ marginTop: 8 }}>
+                        <button className="btn btn--primary btn--sm" onClick={() => { saveRepoTags(r.id); setTagDraft((p) => { const c = { ...p }; delete c[r.id]; return c; }); }}>保存</button>
+                        <button className="btn btn--ghost btn--sm" onClick={() => clearRepoTags(r.id)}>清除配置</button>
+                        <button className="btn btn--ghost btn--sm" onClick={() => setTagDraft((p) => { const c = { ...p }; delete c[r.id]; return c; })}>取消</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ); })()}
               <div className="repo__import">
                 <div className="repo__import-label">向此仓库导入其他目录的 skill（每行一个目录，可含子分类）</div>
                 <div className="formline">

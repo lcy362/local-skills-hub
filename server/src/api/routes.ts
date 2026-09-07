@@ -59,6 +59,15 @@ export function makeRouter(cfg: ConfigStore): Router {
     cfg.save();
     res.json(cfg.data.repos);
   });
+  r.put('/repos/:id', (req, res) => {
+    const repo = cfg.data.repos.find((x) => x.id === req.params.id);
+    if (!repo) return res.status(404).json({ error: 'repo not found' });
+    const { tags, layout } = req.body ?? {};
+    if ('tags' in (req.body ?? {})) repo.tags = tags ?? undefined;
+    if (layout) repo.layout = layout;
+    cfg.save();
+    res.json(cfg.data.repos);
+  });
   r.post('/repos/scan/:id', (req, res) => {
     const repo = cfg.data.repos.find((x) => x.id === req.params.id);
     if (!repo) return res.status(404).json({ error: 'repo not found' });
