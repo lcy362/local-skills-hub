@@ -4,12 +4,12 @@ import { HealthView } from './HealthView';
 
 type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
 
-const NAV: { id: Tab; label: string }[] = [
-  { id: 'library', label: '资产库' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'presets', label: 'Presets' },
-  { id: 'projects', label: '项目' },
-  { id: 'health', label: '体检中心' },
+const NAV: { id: Tab; label: string; note: string }[] = [
+  { id: 'library', label: '资产库', note: '全部 skill，可筛选、打标签' },
+  { id: 'agents', label: 'Agent 目录', note: '把 skill 投给各 AI 编程工具' },
+  { id: 'presets', label: '技能预设', note: 'skill 套餐，解放活的 agent' },
+  { id: 'projects', label: '项目', note: '某代码项目专属可用的 skill' },
+  { id: 'health', label: '体检中心', note: '检查配置与目录是否健康一致' },
 ];
 
 export default function App() {
@@ -42,9 +42,12 @@ export default function App() {
         <div className="rail__brand"><span className="rail__mark">Skills<b>Hub</b></span><span className="rail__tag">local</span></div>
         {NAV.map((n) => (
           <button key={n.id} className={`rail__link${tab === n.id ? ' is-active' : ''}`} onClick={() => setTab(n.id)}>
-            {n.label}
-            {n.id === 'library' && state && <span className="count">{state.skills.length}</span>}
-            {n.id === 'agents' && <span className="count">{active.length}·活跃</span>}
+            <span className="rail__link-name">
+              {n.label}
+              {n.id === 'library' && state && <span className="count">{state.skills.length}</span>}
+              {n.id === 'agents' && <span className="count">{active.length}·活跃</span>}
+            </span>
+            <span className="rail__desc">{n.note}</span>
           </button>
         ))}
         <div className="rail__foot">
@@ -60,8 +63,8 @@ export default function App() {
             <div className="topbar__sub">{tabDesc(tab, state, agents)}</div>
           </div>
           <div className="topbar__actions">
-            <button className="btn" onClick={reload}>刷新</button>
-            <button className="btn btn--primary" onClick={runSync}>立即同步</button>
+            <button className="btn" onClick={reload} title="重读配置与目录，只刷新页面数据，不改动任何文件">刷新</button>
+            <button className="btn btn--primary" onClick={runSync} title="把资产库的 skill 立即投放到各活跃 Agent 的目录，让改动立刻生效">立即同步</button>
           </div>
         </header>
         <div className="content">
@@ -205,6 +208,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
       <div className="panel">
         <div className="panel__head">
           <h2 className="panel__title">资产 <em className="count">{filtered.length}</em></h2>
+          <span className="panel__hint">你掌握的 skill 全集：可切换 列表/卡片，按来源与标签筛选</span>
           <div className="seg" role="group" aria-label="展示样式">
             <button className={`seg__opt${view === 'list' ? ' is-on' : ''}`} onClick={() => setView('list')}>☰ 列表</button>
             <button className={`seg__opt${view === 'card' ? ' is-on' : ''}`} onClick={() => setView('card')}>▦ 卡片</button>
@@ -433,8 +437,8 @@ function AgentsView({ agents, onLoad }: { agents: AgentView[]; onLoad: () => voi
   return (
     <div className="panel">
       <div className="panel__head">
-        <h2 className="panel__title">Agents</h2>
-        <span className="panel__hint">活跃 {agents.filter((a) => a.active).length} · 已检测 {agents.filter((a) => a.installed).length} / 内建 {agents.length}</span>
+        <h2 className="panel__title">Agent 目录</h2>
+        <span className="panel__hint">你在资产库激活的 skill 会被投放/软链到这些 AI 编程工具自己的 skill 目录。活跃 {agents.filter((a) => a.active).length} · 已检测 {agents.filter((a) => a.installed).length} / 内建 {agents.length}</span>
         <div className="panel__actions">
           <button className={`btn btn--sm${only === 'all' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('all')}>全部</button>
           <button className={`btn btn--sm${only === 'detected' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('detected')}>已检测 {agents.filter((a) => a.installed).length}</button>
@@ -546,7 +550,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
   };
   return (
     <div className="panel">
-      <div className="panel__head"><h2 className="panel__title">项目级 Skill</h2><span className="panel__hint">标签关联 · 复制本体入 .agents</span></div>
+      <div className="panel__head"><h2 className="panel__title">项目</h2><span className="panel__hint">登记某个代码项目路径 + 标签后，带相同标签的 skill 会被复制进项目的 .agents，实现"只在这项目里可用"</span></div>
       <div className="formline">
         <input className="field" style={{ flex: 1, minWidth: 240 }} placeholder="项目绝对路径" value={path} onChange={(e) => setPath(e.target.value)} />
         <button className="btn btn--ghost" onClick={() => pickDir((v) => { setPath(v); })} title="系统选择文件夹">📁 文件夹…</button>
