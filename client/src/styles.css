@@ -259,23 +259,46 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
 /* count badge in title */
 .panel__title .count { font-style: normal; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink-soft); }
 
-/* card view */
+/* card view
+ * Hallmark · component: asset-card · genre: modern-minimal · theme: Cobalt(light)
+ * states: default · hover · focus-within · (tag button inherits 8-state coverage)
+ * contrast: pass (46+)
+ */
 .grid-card {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--space-3); align-items: start;
+  gap: var(--space-3); align-items: stretch;
 }
 .card { opacity: 0; animation: card-in var(--dur-slow) var(--ease-out) forwards; }
 .card__inner {
-  position: relative; height: 100%;
+  position: relative; height: 100%; overflow: hidden;
   display: flex; flex-direction: column; gap: var(--space-2);
-  padding: var(--space-4); border-radius: var(--radius-md);
+  padding: var(--space-5) var(--space-4) var(--space-4);
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-line-soft); background: var(--color-paper-2);
   transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast);
 }
-.card__inner:hover { border-color: var(--color-line); transform: translateY(-2px); box-shadow: var(--shadow-1); }
-.card__inner:focus-within { border-color: var(--color-accent); }
+/* accent top rule — brand edge that lifts each card off the flat grid */
+.card__inner::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-dim) 70%, transparent);
+  opacity: 0.85;
+}
+.card__inner:hover {
+  border-color: var(--color-line); transform: translateY(-3px);
+  box-shadow: var(--shadow-1), 0 14px 28px oklch(0.25 0.02 255 / 0.08);
+}
+.card__inner:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px oklch(0.72 0.15 250 / 0.18);
+}
+/* card-adapted typography (scoped so list rows stay untouched) */
+.card__inner .row__title { font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; min-width: 0; }
+.card__inner .row__note { margin-top: var(--space-1); }
+.card__inner .skill-tags {
+  margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  padding-top: var(--space-3); border-top: 1px solid var(--color-line-soft);
+}
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.skill-tags { margin-top: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-top: var(--space-2); border-top: 1px solid var(--color-line-soft); }
 @media (max-width: 640px) {
   .grid-card { grid-template-columns: 1fr; }
   .filterbar { padding: var(--space-2) var(--space-3); }

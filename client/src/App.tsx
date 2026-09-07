@@ -130,7 +130,7 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const [imp, setImp] = useState<Record<string, string>>({});
   const [showRepos, setShowRepos] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [view, setView] = useState<'list' | 'card'>('list');
+  const [view, setView] = useState<'list' | 'card'>('card');
   const [srcSel, setSrcSel] = useState<string[]>([]);
   const [tagSel, setTagSel] = useState<string[]>([]);
   const [srcSingle, setSrcSingle] = useState(false);
