@@ -7,8 +7,8 @@ import { listAgents } from '../core/agents.js';
 import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
-import { syncActive } from '../core/sync.js';
-import { previewGroups, applyAdoption } from '../core/integrate.js';
+import { syncActive, diffSync, computeDesired } from '../core/sync.js';
+import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
 import { readTags, writeTags } from '../core/repo-tags.js';
@@ -222,9 +222,22 @@ export function makeRouter(cfg: ConfigStore): Router {
     const repoId = req.body?.repoId;
     res.json(importDirs(cfg, dirs, repoId));
   });
-  r.get('/diagnose', (_req, res) => res.json(diagnose(cfg)));
+  r.get('/diagnose', (_req, res) => {
+    try {
+      const lib = library();
+      res.json(diagnose(cfg, {
+        lib,
+        candidates: collectCandidates(cfg, lib),
+        desired: computeDesired(cfg, lib.skills),
+      }));
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
 
   // ---- sync ----
+  r.get('/sync/status', (_req, res) => {
+    const lib = library();
+    res.json(diffSync(cfg, lib.skills));
+  });
   r.post('/sync', (req, res) => {
     const lib = library();
     const only = Array.isArray(req.body?.agents) ? req.body.agents : undefined;

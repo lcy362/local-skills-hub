@@ -20,7 +20,21 @@ export interface SourceView { id: string; name: string; path: string; layout: st
 export interface ProjectView { path: string; tags: string[]; hasAgents?: boolean }
 export interface Candidate { id: string; name: string; source: string; sourceLabel: string; dir: string; inRepo: boolean; description?: string }
 export interface IntegrateGroup { name: string; candidates: Candidate[] }
-export interface DiagItem { key: string; status: 'ok' | 'warn' | 'error'; message: string }
+export interface SyncDiff { agent: string; desiredNames: string[]; missing: string[]; extra: string[]; brokenLink: string[] }
+export type DiagStatus = 'ok' | 'warn' | 'error';
+export interface DiagItem { key: string; status: DiagStatus; message: string; detail?: unknown }
+export type DiagDimension = 'agent' | 'sync' | 'dup' | 'durability' | 'config' | 'repo' | 'project' | 'tags';
+export interface DiagSummary { total: number; ok: number; warn: number; error: number }
+export interface DiagGroups {
+  agent: DiagItem[]; sync: DiagItem[]; dup: DiagItem[]; durability: DiagItem[];
+  config: DiagItem[]; repo: DiagItem[]; project: DiagItem[]; tags: DiagItem[];
+}
+export interface DiagnoseResult {
+  config: string;
+  summary: Record<DiagDimension, DiagSummary>;
+  groups: DiagGroups;
+  items: DiagItem[];
+}
 export interface ProjectSyncResult { project: string; copied: string[]; removed: string[]; agentLinks: { agent: string; created: string[] }[]; errors: string[] }
 export interface ImportResult { source: string; imported: string[]; skipped: string[] }
 export interface ImportPreviewItem { source: string; layout: string; count: number; error?: string }

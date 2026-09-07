@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, IntegrateGroup, Candidate, DiagItem, ProjectSyncResult, ImportResult, ImportPreviewItem } from './api';
+import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem } from './api';
+import { HealthView } from './HealthView';
 
-type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'integrate' | 'diag';
+type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
 
 const NAV: { id: Tab; label: string }[] = [
   { id: 'library', label: '资产库' },
   { id: 'agents', label: 'Agents' },
   { id: 'presets', label: 'Presets' },
   { id: 'projects', label: '项目' },
-  { id: 'integrate', label: '收编' },
-  { id: 'diag', label: '诊断' },
+  { id: 'health', label: '体检中心' },
 ];
 
 export default function App() {
@@ -70,8 +70,7 @@ export default function App() {
           {tab === 'agents' && <AgentsView agents={agents} onLoad={reload} />}
           {tab === 'presets' && <PresetsView state={state} onLoad={reload} />}
           {tab === 'projects' && <ProjectsView onMsg={setMsg} />}
-          {tab === 'integrate' && <IntegrateView onMsg={setMsg} />}
-          {tab === 'diag' && <DiagView />}
+          {tab === 'health' && <HealthView onMsg={setMsg} refreshGlobal={reload} />}
         </div>
       </main>
     </div>
@@ -97,7 +96,7 @@ function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
     case 'library': return `${s?.skills.length ?? 0} 个 skill · ${new Set(s?.skills.map((x) => x.source)).size ?? 0} 个来源`;
     case 'agents': return `${a.length} 内建 agent · ${a.filter((x) => x.installed).length} 已检测`;
     case 'presets': return `${s?.presets.length ?? 0} 个预设 · ${s?.presets.filter((p) => p.active).length ?? 0} 激活`;
-    case 'integrate': return '按名归并各来源 skill 到仓库';
+    case 'health': return '综合体检：Agent / 同步 / 重复 Skill / 失效软链 / 仓库 / 项目 / 标签来源';
     default: return '';
   }
 }
@@ -565,75 +564,6 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
             </div>
           </div>
           <div className="row__actions"><button className="btn btn--sm" onClick={() => sync(i)} title="把匹配标签的 skill 复制到本项目 .agents/skills，并将各 agent 的项目 skill 目录整体软链指向它（每个 agent 仅一条目录级软链）">同步 .agents</button></div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ================= Integrate ================= */
-function IntegrateView({ onMsg }: { onMsg: (m: string) => void }) {
-  const [groups, setGroups] = useState<IntegrateGroup[]>([]);
-  const [sel, setSel] = useState<Record<string, string>>({});
-  const load = async () => {
-    const r = await api<{ groups: IntegrateGroup[] }>('/integrate/preview', { method: 'POST', body: JSON.stringify({}) });
-    setGroups(r.groups);
-    const init: Record<string, string> = {};
-    for (const g of r.groups) {
-      if (g.candidates.some((c) => c.inRepo)) init[g.name] = g.candidates.find((c) => c.inRepo)!.id;
-      else if (g.candidates.length > 0) init[g.name] = g.candidates[0].id;
-    }
-    setSel(init);
-  };
-  useEffect(() => { load(); }, []);
-  const apply = async () => {
-    const decisions = groups.map((g) => sel[g.name] ? { name: g.name, selectId: sel[g.name] } : { name: g.name, skip: true });
-    const r = await api<{ results: { name: string; adopted: boolean; reason?: string }[] }>('/integrate', { method: 'POST', body: JSON.stringify({ decisions }) });
-    onMsg(`收编 ${r.results.filter((x) => x.adopted).length} · 跳过 ${r.results.filter((x) => !x.adopted).length}`);
-    load();
-  };
-  return (
-    <div className="panel">
-      <div className="panel__head">
-        <h2 className="panel__title">去重收编</h2>
-        <span className="panel__hint">同一个 skill 也可能来自多个目录/仓库。这里让你为每组选一个「保留版」，其余不再重复投放。选好比后点「应用所选收编」。</span>
-        <div className="panel__actions">
-          <button className="btn" onClick={load}>刷新预览</button>
-          <button className="btn btn--primary" onClick={apply}>应用所选收编</button>
-        </div>
-      </div>
-      {groups.map((g) => (
-        <div className="igroup" key={g.name}>
-          <div className="igroup__name">{g.name}<span className="badge badge--off">{g.candidates.length} 来源</span></div>
-          <div className="igroup__opts">
-            {g.candidates.map((c) => (
-              <label key={c.id} className={`igroup__opt${sel[g.name] === c.id ? ' is-sel' : ''}`}>
-                <input type="radio" name={g.name} checked={sel[g.name] === c.id} onChange={() => setSel({ ...sel, [g.name]: c.id })} />
-                {c.sourceLabel} {c.inRepo ? '· 已在仓库' : '· 需收编'}
-              </label>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ================= Diagnostics ================= */
-function DiagView() {
-  const [items, setItems] = useState<DiagItem[]>([]);
-  const [config, setConfig] = useState('');
-  useEffect(() => { api<{ config: string; items: DiagItem[] }>('/diagnose').then((d) => { setItems(d.items); setConfig(d.config); }); }, []);
-  return (
-    <div className="panel">
-      <div className="panel__head">
-        <h2 className="panel__title">诊断</h2>
-        <span className="panel__hint">{config}</span>
-      </div>
-      {items.map((it) => (
-        <div className="diagrow" key={it.key}>
-          <span className={`dot dot--${it.status === 'ok' ? 'good' : it.status === 'warn' ? 'warn' : 'bad'}`} />
-          <span className={`status-${it.status}`}>{it.message}</span>
         </div>
       ))}
     </div>

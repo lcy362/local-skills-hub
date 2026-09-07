@@ -95,4 +95,45 @@ export function syncActive(cfg: ConfigStore, allSkills: Skill[], only?: string[]
   return targets.map((k) => deployAgent(cfg, k, desired, allSkills));
 }
 
-export const _internal = { computeDesired, deployAgent, expandTilde };
+export interface SyncDiff {
+  agent: string;
+  desiredNames: string[];
+  /** 期望有、实际未部署 */
+  missing: string[];
+  /** 实际有、期望无（注意：/sync 只会删除“软链”分歧项） */
+  extra: string[];
+  /** 期望中应部署但软链失效 */
+  brokenLink: string[];
+}
+
+/**
+ * 只读比对：期望 skill 集合（activate preset 成员） vs 每个活跃 agent 实际部署集合。
+ * 绝不写盘，仅供诊断。extra 口径与 deployAgent 一致：仅软链分歧项可被一键同步清除，真实目录仅提示。
+ */
+export function diffSync(cfg: ConfigStore, allSkills: Skill[]): SyncDiff[] {
+  const desired = computeDesired(cfg, allSkills);
+  const out: SyncDiff[] = [];
+  for (const key of cfg.data.activeAgents) {
+    const def = findBuiltin(key);
+    if (!def) continue;
+    const dir = resolveGlobalDir(def, cfg.data.agents[key]?.globalDir);
+    const desiredNames = [...new Set([...desired.values()].map((s) => s.name))];
+    const actual = new Set<string>();
+    const brokenLink: string[] = [];
+    if (fs.existsSync(dir)) {
+      for (const ent of fs.readdirSync(dir)) {
+        const p = path.join(dir, ent);
+        let ls;
+        try { ls = fs.lstatSync(p); } catch { continue; }
+        if (ls.isSymbolicLink() && !fs.existsSync(p)) { brokenLink.push(ent); continue; }
+        if (ls.isSymbolicLink() || ls.isDirectory()) actual.add(ent);
+      }
+    }
+    const missing = desiredNames.filter((n) => !actual.has(n));
+    const extra = [...actual].filter((n) => !desiredNames.includes(n));
+    out.push({ agent: key, desiredNames, missing, extra, brokenLink });
+  }
+  return out;
+}
+
+export const _internal = { computeDesired, deployAgent, diffSync, expandTilde };

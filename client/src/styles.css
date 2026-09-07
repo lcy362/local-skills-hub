@@ -196,6 +196,9 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
 .badge--shared { background: oklch(0.80 0.14 78 / 0.14); color: var(--color-warn); }
 .badge--state { background: oklch(0.74 0.14 160 / 0.14); color: var(--color-good); }
 .badge--off  { background: var(--color-paper-2); color: var(--color-ink-soft); }
+.badge--warn { background: oklch(0.82 0.13 70 / 0.20); color: var(--color-warn); }
+.diag-block + .diag-block { margin-top: var(--space-3); }
+.diag-block__label { font-size: var(--text-2xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-ink-soft); margin-bottom: 2px; }
 .tag {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: var(--text-2xs); font-weight: 500;
