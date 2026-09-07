@@ -6,21 +6,26 @@ import { expandTilde } from './agents.js';
 
 export interface ImportResult { source: string; imported: string[]; skipped: string[] }
 
-export interface ImportPreviewItem { source: string; layout: 'flat' | 'nested'; count: number; error?: string }
+export interface ImportPreviewItem { source: string; layout: 'flat' | 'nested'; count: number; tags: string[]; error?: string }
 
 /**
- * 导入前预览：逐目录识别布局并统计可导入 skill 数。
+ * 导入前预览：逐目录识别布局、统计可导入 skill 数，并汇总解析出的标签。
  * count 与 importDirs 的 nested 扫描口径一致，保证预览 = 实际导入数。
+ * tags 为该目录下所有 skill 从 SKILL.md 解析出的标签并集（顶层 tags | metadata.tags）。
  */
 export function previewImportDirs(sourceDirs: string[]): ImportPreviewItem[] {
   const out: ImportPreviewItem[] = [];
   for (const sd of sourceDirs) {
     const abs = expandTilde(sd);
-    if (!fs.existsSync(abs)) { out.push({ source: sd, layout: 'flat', count: 0, error: '路径不存在' }); continue; }
+    if (!fs.existsSync(abs)) { out.push({ source: sd, layout: 'flat', count: 0, tags: [], error: '路径不存在' }); continue; }
     try {
       const det = detectLayoutAbs(abs);
-      out.push({ source: sd, layout: det.layout, count: scanDir(abs, 'probe', 'nested').length });
-    } catch (e) { out.push({ source: sd, layout: 'flat', count: 0, error: String(e) }); }
+      const found = scanDir(abs, 'probe', 'nested');
+      out.push({
+        source: sd, layout: det.layout, count: found.length,
+        tags: [...new Set(found.flatMap((s) => s.tags))],
+      });
+    } catch (e) { out.push({ source: sd, layout: 'flat', count: 0, tags: [], error: String(e) }); }
   }
   return out;
 }

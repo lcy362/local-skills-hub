@@ -102,6 +102,15 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
   const [iIdT, setIIdT] = useState(false);
   const idOf = (p: string) => p.trim().replace(/\/$/, '').replace(/\/skills$/, '').split(/[/\\]/).filter(Boolean).pop() ?? '';
   const [iId, setIId] = useState(''); const [iPath, setIPath] = useState(''); const [iDet, setIDet] = useState<{ layout: string; count: number; root?: string } | null>(null); const [iLayout, setILayout] = useState('flat'); const [impNote, setImpNote] = useState('');
+  const [tMode, setTMode] = useState<'auto' | 'frontmatter' | 'repo-file' | 'external-file'>('auto');
+  const [tFile, setTFile] = useState('');
+  const tagOpts: { v: typeof tMode; label: string; desc: string }[] = [
+    { v: 'auto', label: '自动', desc: '沿用仓库自带标签（SKILL.md 或 marketplace.json）；无自带则为空' },
+    { v: 'frontmatter', label: 'skill 文件', desc: '在每个 SKILL.md frontmatter 的 tags 里维护' },
+    { v: 'repo-file', label: '仓库内文件', desc: '仓库内单独标签文件（默认 .claude-plugin/marketplace.json，可另填路径）' },
+    { v: 'external-file', label: '仓库外文件', desc: '仓库外单独标签文件，需填写绝对路径' },
+  ];
+  const buildTags = (): { mode: 'frontmatter' | 'repo-file' | 'external-file'; file?: string } | undefined => tMode === 'auto' ? undefined : { mode: tMode, file: tFile.trim() || undefined };
   const [imp, setImp] = useState<Record<string, string>>({});
   const [showRepos, setShowRepos] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -125,9 +134,9 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
     const s = state?.skills.find((x) => x.id === id); if (!s) return;
     setTags(id, s.tags.filter((t) => t !== tag));
   };
-  const createRepo = async () => { const id = nId.trim() || idOf(nPath); if (!id || !nPath.trim()) { onMsg('请填写仓库路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id, path: nPath.trim(), layout: 'flat' }) }); setNId(''); setNPath(''); setNIdT(false); refreshRepos(); } catch (e) { onMsg((e as Error).message); } };
+  const createRepo = async () => { const id = nId.trim() || idOf(nPath); if (!id || !nPath.trim()) { onMsg('请填写仓库路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id, path: nPath.trim(), layout: 'flat', tags: buildTags() }) }); setNId(''); setNPath(''); setNIdT(false); refreshRepos(); } catch (e) { onMsg((e as Error).message); } };
   const detect = async () => { if (!iPath.trim()) { setImpNote('请先填写目录路径'); return; } setImpNote('识别中…'); setIDet(null); try { const r = await api<{ layout: string; count: number; root: string }>('/repos/detect', { method: 'POST', body: JSON.stringify({ path: iPath.trim() }) }); setIDet(r); setILayout(r.layout); setImpNote(r.count ? `已识别 <b>${r.layout}</b> 布局，含 ${r.count} 个 skill` : '该目录未发现 skill，请确认路径'); } catch (e) { setImpNote((e as Error).message); } };
-  const importRepo = async () => { if (!iDet) { setImpNote('请先点击「识别布局」并确认后再导入'); return; } const id = iId.trim() || idOf(iPath); if (!id || !iPath.trim()) { setImpNote('请填写目录路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id, path: iPath.trim(), layout: iLayout, root: iDet.root }) }); onMsg(`已导入仓库 ${id}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIIdT(false); setIDet(null); setImpNote(''); refreshRepos(); } catch (e) { setImpNote((e as Error).message); } };
+  const importRepo = async () => { if (!iDet) { setImpNote('请先点击「识别布局」并确认后再导入'); return; } const id = iId.trim() || idOf(iPath); if (!id || !iPath.trim()) { setImpNote('请填写目录路径'); return; } try { await api('/repos', { method: 'POST', body: JSON.stringify({ id, path: iPath.trim(), layout: iLayout, root: iDet.root, tags: buildTags() }) }); onMsg(`已导入仓库 ${id}（layout: ${iLayout}）`); setIId(''); setIPath(''); setIIdT(false); setIDet(null); setImpNote(''); refreshRepos(); } catch (e) { setImpNote((e as Error).message); } };
   const runImp = async (repoId: string) => {
     const dirs = (imp[repoId] ?? '').split('\n').map((x) => x.trim()).filter(Boolean); if (!dirs.length) return;
     const r = await api<ImportResult[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId }) });
@@ -313,6 +322,19 @@ function Library({ state, onLoad, onMsg }: { state: StateView | null; onLoad: ()
               )}
             </div>
             {impNote && <div className="panel__hint" style={{ marginTop: 8, fontWeight: 600 }} dangerouslySetInnerHTML={{ __html: impNote }} />}
+          </div>
+          {/* 标签管理方式（仅仓库未自带时需手动指定） */}
+          <div className="subcard">
+            <div className="subcard__head"><span className="step">★</span>标签管理方式<span className="panel__hint">选择标签的唯一来源；选「自动」则沿用仓库自带（若无自带则为空）</span></div>
+            <div className="formline">
+              {tagOpts.map((o) => (
+                <button key={o.v} className={`chip${tMode === o.v ? ' is-on' : ''}`} onClick={() => setTMode(o.v)}>{o.label}</button>
+              ))}
+            </div>
+            <div className="panel__hint" style={{ marginTop: 6, opacity: 0.8 }}>{tagOpts.find((o) => o.v === tMode)!.desc}</div>
+            {(tMode === 'repo-file' || tMode === 'external-file') && (
+              <input className="field" style={{ marginTop: 8 }} placeholder={tMode === 'external-file' ? '仓库外标签文件绝对路径（必填，{skillName: [tags]}）' : '仓库内标签文件（留空默认 .claude-plugin/marketplace.json）'} value={tFile} onChange={(e) => setTFile(e.target.value)} />
+            )}
           </div>
         </Modal>
       )}

@@ -1,12 +1,24 @@
 export type Layout = 'flat' | 'nested' | 'auto';
 export type SyncMode = 'symlink' | 'copy';
 
+/** 标签来源方式 */
+export type TagsMode = 'auto' | 'frontmatter' | 'repo-file' | 'external-file';
+
+/** 仓库标签来源配置；不配置该项时沿用旧行为（读 config.skillMeta） */
+export interface RepoTags {
+  mode: TagsMode;
+  /** repo-file: 仓库内相对/绝对标签文件；external-file: 仓库外绝对路径 */
+  file?: string;
+}
+
 export interface Repo {
   id: string;
   path: string;
   /** 真实 skills 根目录，默认 <path>/skills；导入现有目录时指向其本体 */
   root?: string;
   layout: Layout;
+  /** 可选：标签来源配置 */
+  tags?: RepoTags;
 }
 
 export interface ForeignSource {

@@ -11,6 +11,7 @@ import { syncActive } from '../core/sync.js';
 import { previewGroups, applyAdoption } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
+import { readTags, writeTags } from '../core/repo-tags.js';
 import { diagnose } from '../core/diagnose.js';
 import { pickDirectory } from '../core/picker.js';
 import { Repo, ForeignSource } from '../config/types.js';
@@ -23,11 +24,17 @@ export function makeRouter(cfg: ConfigStore): Router {
 
   r.get('/state', (_req, res) => {
     const lib = library();
-    const skills = lib.skills.map((s) => ({
-      id: s.id, name: s.name, source: s.source, dir: s.dir,
-      description: s.description, version: s.version,
-      tags: cfg.data.skillMeta[s.id]?.tags ?? [],
-    }));
+    const repoOf = (src: string) => cfg.data.repos.find((x) => x.id === src);
+    const skills = lib.skills.map((s) => {
+      const repo = repoOf(s.source);
+      // 有显式标签来源配置的仓库：以所选来源为唯一基准；否则兼容旧行为读 config.skillMeta
+      const tags = repo?.tags ? readTags(repo, s.name, s.dir) : cfg.data.skillMeta[s.id]?.tags ?? s.tags;
+      return {
+        id: s.id, name: s.name, source: s.source, dir: s.dir,
+        description: s.description, version: s.version,
+        tags,
+      };
+    });
     res.json({ activeAgents: cfg.data.activeAgents, skills, presets: cfg.data.presets });
   });
 
@@ -40,10 +47,10 @@ export function makeRouter(cfg: ConfigStore): Router {
   // ---- repos ----
   r.get('/repos', (_req, res) => res.json(cfg.data.repos));
   r.post('/repos', (req, res) => {
-    const { id, path: p, layout, root } = req.body as Repo;
+    const { id, path: p, layout, root, tags } = req.body as Repo;
     if (!id || !p) return res.status(400).json({ error: 'id/path required' });
     if (cfg.data.repos.some((x) => x.id === id)) return res.status(409).json({ error: `repo ${id} 已存在` });
-    cfg.data.repos.push({ id, path: p, layout: layout ?? 'flat', root: root ?? undefined });
+    cfg.data.repos.push({ id, path: p, layout: layout ?? 'flat', root: root ?? undefined, tags: tags ?? undefined });
     cfg.save();
     res.json(cfg.data.repos);
   });
@@ -102,8 +109,21 @@ export function makeRouter(cfg: ConfigStore): Router {
   // ---- skills / tags ----
   r.patch('/skills/:id', (req, res) => {
     const id = decodeURIComponent(req.params.id);
+    if (!Array.isArray(req.body?.tags)) return res.status(400).json({ error: 'tags required' });
+    const tags = req.body.tags;
+    // name@source 拆出：source 可能是仓库 id
+    const at = id.lastIndexOf('@');
+    const source = at >= 0 ? id.slice(at + 1) : '';
+    const repo = cfg.data.repos.find((x) => x.id === source);
+    // 显式标签来源的仓库：写回所选来源载体（以来源为唯一基准）
+    if (repo?.tags) {
+      const lib = library();
+      const skill = lib.skills.find((s) => s.id === id);
+      if (skill && writeTags(repo, skill.name, skill.dir, tags)) return res.json({ tags, via: 'source' });
+      // 载体写回失败（如 SKILL.md 无 frontmatter）→ 回退 config 覆盖
+    }
     const meta = cfg.data.skillMeta[id] ?? { tags: [] };
-    if (Array.isArray(req.body?.tags)) meta.tags = req.body.tags;
+    meta.tags = tags;
     cfg.data.skillMeta[id] = meta;
     cfg.save();
     res.json(meta);
