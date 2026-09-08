@@ -61,6 +61,8 @@ export interface SkillMeta {
 export interface ProjectLink {
   path: string;
   tags: string[];
+  /** 项目支持的 agent key 列表；省略 = 全部支持 */
+  agents?: string[];
 }
 
 export interface HubConfig {

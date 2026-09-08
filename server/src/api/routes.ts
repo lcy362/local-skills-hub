@@ -259,7 +259,7 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
   });
   r.post('/projects', (req, res) => {
     try {
-      addProject(cfg, String(req.body?.path), Array.isArray(req.body?.tags) ? req.body.tags : []);
+      addProject(cfg, String(req.body?.path), Array.isArray(req.body?.tags) ? req.body.tags : [], Array.isArray(req.body?.agents) ? req.body.agents : undefined);
       res.json(cfg.data.projects);
     } catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
@@ -268,6 +268,15 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const proj = cfg.data.projects[id];
     if (!proj) return res.status(404).json({ error: 'project not found' });
     if (Array.isArray(req.body?.tags)) proj.tags = req.body.tags;
+    cfg.save();
+    res.json(proj);
+  });
+  r.put('/projects/:id/agents', (req, res) => {
+    const id = Number(req.params.id);
+    const proj = cfg.data.projects[id];
+    if (!proj) return res.status(404).json({ error: 'project not found' });
+    const list = Array.isArray(req.body?.agents) ? req.body.agents : [];
+    proj.agents = list.length ? list : undefined; // 省略/空 = 全部支持
     cfg.save();
     res.json(proj);
   });

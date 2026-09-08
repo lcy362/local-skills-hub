@@ -842,20 +842,30 @@ function PresetsView({ state, onLoad }: { state: StateView | null; onLoad: () =>
 function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
   const [projects, setProjects] = useState<ProjectView[]>([]);
   const [skills, setSkills] = useState<SkillView[]>([]);
+  const [agents, setAgents] = useState<AgentView[]>([]);
   const [path, setPath] = useState(''); const [tag, setTag] = useState('');
+  // 支持 project 目录的 agent 才是项目可投放对象
+  const projectAgents = agents.filter((a) => a.project);
+  const [addAgents, setAddAgents] = useState<string[]>([]);
+  const [editingAgents, setEditingAgents] = useState<Record<number, { list: string[] } | undefined>>({});
   const reload = async () => {
-    const [p, s] = await Promise.all([api<ProjectView[]>('/projects'), api<StateView>('/state').then((x) => x.skills)]);
-    setProjects(p); setSkills(s);
+    const [p, s, a] = await Promise.all([
+      api<ProjectView[]>('/projects'),
+      api<StateView>('/state').then((x) => x.skills),
+      api<AgentView[]>('/agents'),
+    ]);
+    setProjects(p); setSkills(s); setAgents(a);
   };
   useEffect(() => { reload(); }, []);
+  const toggle = (list: string[], key: string) => list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
   const add = async () => {
     if (!path.trim()) return;
-    await api('/projects', { method: 'POST', body: JSON.stringify({ path: path.trim(), tags: tag.trim() ? tag.split(',').map((t) => t.trim()) : [] }) });
-    setPath(''); setTag(''); reload();
+    await api('/projects', { method: 'POST', body: JSON.stringify({ path: path.trim(), tags: tag.trim() ? tag.split(',').map((t) => t.trim()) : [], agents: addAgents }) });
+    setPath(''); setTag(''); setAddAgents([]); reload();
   };
   const sync = async (i: number) => {
     const r = await api<ProjectSyncResult>(`/projects/${i}/sync`, { method: 'POST', body: JSON.stringify({}) });
-    onMsg(`复制 ${r.copied.join(',') || '—'} · 移除 ${r.removed.length} · 共享软链 ${r.agentLinks.filter((x) => x.created.length).length} 个 agent（每个 agent 将项目 skill 目录整体软链指向 .agents/skills）`);
+    onMsg(`复制 ${r.copied.join(',') || '—'} · 移除 ${r.removed.length} · 软链 ${r.agentLinks.map((x) => x.agent).join(',') || '—'} 个 agent（每个 agent 将项目 skill 目录整体软链指向 .agents/skills）`);
     reload();
   };
   const toggleTag = async (i: number, t: string) => {
@@ -863,16 +873,42 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
     const tags = pv.tags.includes(t) ? pv.tags.filter((x) => x !== t) : [...pv.tags, t];
     await api(`/projects/${i}/tags`, { method: 'PUT', body: JSON.stringify({ tags }) }); reload();
   };
+  const saveAgents = async (i: number) => {
+    const d = editingAgents[i]; if (!d) return;
+    await api(`/projects/${i}/agents`, { method: 'PUT', body: JSON.stringify({ agents: d.list }) });
+    setEditingAgents((p) => { const c = { ...p }; delete c[i]; return c; });
+    reload();
+  };
+  const setProjectAgents = async (i: number, list: string[]) => {
+    // 空 = 全部支持；否则完整覆盖
+    await api(`/projects/${i}/agents`, { method: 'PUT', body: JSON.stringify({ agents: list }) });
+    reload();
+  };
+  const agentsLabel = (p: ProjectView) => {
+    if (p.agents && p.agents.length) return p.agents.map((k) => agents.find((a) => a.key === k)?.name ?? k).join('、');
+    return '全部 agent';
+  };
   return (
     <div className="panel">
-      <div className="panel__head"><h2 className="panel__title">项目</h2><span className="panel__hint">登记某个代码项目路径 + 标签后，带相同标签的 skill 会被复制进项目的 .agents，实现"只在这项目里可用"</span></div>
+      <div className="panel__head"><h2 className="panel__title">项目</h2><span className="panel__hint">登记某个代码项目路径 + 标签后，带相同标签的 skill 会被复制进项目的 .agents，并软链到项目支持的 agent，实现"只在这项目里可用"</span></div>
       <div className="formline">
         <input className="field" style={{ flex: 1, minWidth: 240 }} placeholder="项目绝对路径" value={path} onChange={(e) => setPath(e.target.value)} />
         <button className="btn btn--ghost" onClick={() => pickDir((v) => { setPath(v); })} title="系统选择文件夹">📁 文件夹…</button>
         <input className="field" style={{ width: 180 }} placeholder="标签(逗号分隔)" value={tag} onChange={(e) => setTag(e.target.value)} />
         <button className="btn btn--primary" onClick={add}>登记项目</button>
       </div>
-      {projects.map((p, i) => (
+      {projectAgents.length > 0 && path.trim() !== '' && (
+        <div className="formline" style={{ marginTop: 4, flexWrap: 'wrap' }}>
+          <span className="panel__hint" style={{ margin: 0 }}>本项目投放给哪些 agent：</span>
+          {projectAgents.map((a) => (
+            <button key={a.key} className={`chip${addAgents.includes(a.key) ? ' is-on' : ''}`} onClick={() => setAddAgents((prev) => toggle(prev, a.key))}>{a.name}</button>
+          ))}
+          {addAgents.length > 0 && <span className="row__note">（未勾选的 agent 也会全部投放；勾选任一后只投放勾选项）</span>}
+        </div>
+      )}
+      {projects.map((p, i) => {
+        const editing = editingAgents[i] !== undefined;
+        return (
         <div className="row" key={p.path} style={{ marginTop: 10 }}>
           <div className="row__main">
             <div className="row__title">{p.path}{p.hasAgents && <span className="badge badge--state">.agents</span>}</div>
@@ -881,10 +917,29 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
               {skills.filter((s) => s.tags.some((t) => p.tags.includes(t))).map((s) =>
                 <span key={s.id} className="tag tag--matched">✓ {s.name}</span>)}
             </div>
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="row__note">投放：{agentsLabel(p)}</span>
+              {editing && projectAgents.map((a) => (
+                <button key={a.key} className={`chip${(editingAgents[i]!.list).includes(a.key) ? ' is-on' : ''}`} onClick={() => setEditingAgents((prev) => ({ ...prev, [i]: { list: toggle(prev[i]!.list, a.key) } }))}>{a.name}</button>
+              ))}
+              {!editing && (
+                <>
+                  <button className="btn btn--ghost btn--sm" onClick={() => setEditingAgents((prev) => ({ ...prev, [i]: { list: p.agents ?? [] } }))}>编辑</button>
+                  {p.agents && p.agents.length > 0 && <button className="btn btn--ghost btn--sm" onClick={() => setProjectAgents(i, [])} title="恢复为投放给全部 agent">全部</button>}
+                </>
+              )}
+              {editing && (
+                <>
+                  <button className="btn btn--primary btn--sm" onClick={() => saveAgents(i)}>保存</button>
+                  <button className="btn btn--ghost btn--sm" onClick={() => setEditingAgents((prev) => { const c = { ...prev }; delete c[i]; return c; })}>取消</button>
+                </>
+              )}
+            </div>
           </div>
-          <div className="row__actions"><button className="btn btn--sm" onClick={() => sync(i)} title="把匹配标签的 skill 复制到本项目 .agents/skills，并将各 agent 的项目 skill 目录整体软链指向它（每个 agent 仅一条目录级软链）">同步 .agents</button></div>
+          <div className="row__actions"><button className="btn btn--sm" onClick={() => sync(i)} title="把匹配标签的 skill 复制到本项目 .agents/skills，并将本项目支持的 agent 的项目 skill 目录整体软链指向它">同步 .agents</button></div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

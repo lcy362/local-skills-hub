@@ -64,7 +64,10 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   }
 
   // 其他 agent 的项目级目录软链到 .agents/skills（对整目录建一条软链，共享同一份副本，无需每个 skill 一条）
+  // 仅软链本「项目支持的 agent」（proj.agents 省略 = 全部）
+  const supported = new Set(proj.agents);
   for (const a of listAgents(cfg.data)) {
+    if (supported.size > 0 && !supported.has(a.key)) continue;
     if (!a.project) continue;
     if (cfg.data.agents[a.key]?.sync === 'copy') continue; // 复制模式 agent 也复制本体到各自项目目录
     const target = agentsRoot;
@@ -86,10 +89,10 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   return res;
 }
 
-export function addProject(cfg: ConfigStore, projectPath: string, tags: string[]): void {
+export function addProject(cfg: ConfigStore, projectPath: string, tags: string[], agents?: string[]): void {
   const abs = path.resolve(projectPath);
   if (!fs.existsSync(abs)) throw new Error(`路径不存在: ${abs}`);
   if (cfg.data.projects.some((p) => path.resolve(p.path) === abs)) throw new Error('项目已登记');
-  cfg.data.projects.push({ path: abs, tags });
+  cfg.data.projects.push({ path: abs, tags, agents: agents && agents.length ? agents : undefined });
   cfg.save();
 }
