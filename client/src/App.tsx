@@ -504,12 +504,19 @@ function QuickTag({ onAdd }: { onAdd: (t: string) => void }) {
 function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; presets: PresetView[]; onLoad: () => void; onMsg: (m: string) => void; onBack: () => void }) {
   const [skills, setSkills] = useState<AgentSkillView[] | null>(null);
   const [active, setActive] = useState(a.active);
-  const [mode, setMode] = useState<'preset' | 'manual'>(a.mode ?? 'preset');
+  const [mode, setMode] = useState<'preset' | 'manual'>(a.mode ?? 'manual');
   const [presetSel, setPresetSel] = useState(a.preset ?? '');
+  const [repos, setRepos] = useState<RepoView[]>([]);
+  const [collTarget, setCollTarget] = useState('');
+  const [view, setView] = useState<'list' | 'card'>('list');
   const [busy, setBusy] = useState(false);
   const load = async () => {
-    const r = await api<AgentSkillsResp>(`/agents/${encodeURIComponent(a.key)}/skills`);
+    const [r, rs] = await Promise.all([
+      api<AgentSkillsResp>(`/agents/${encodeURIComponent(a.key)}/skills`),
+      api<RepoView[]>('/repos'),
+    ]);
     setSkills(r.skills); setActive(r.active);
+    setRepos(rs); if (!collTarget && rs.length) setCollTarget(rs[0].id);
   };
   useEffect(() => { load(); }, [a.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const refetch = async () => { onLoad(); await load(); };
@@ -537,7 +544,27 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
   const delOwn = async (name: string) => {
     if (!confirm(`删除这个 AI 工具自带的技能「${name}」？\n\n将删除目录 ${a.globalDir}/${name}\n该技能不归本程序管理，删除后无法撤销。`)) return;
     await api(`/agents/${a.key}/owned/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    onMsg(`已删除自有 skill：${name}`); await refetch();
+    onMsg(`已删除自带技能：${name}`); await refetch();
+  };
+  const collect = async (s: AgentSkillView) => {
+    if (!collTarget) { onMsg('请先在下方选择一个目标资产库，再点「收编」'); return; }
+    setBusy(true);
+    const r = await api<CollectResult>(`/repos/${encodeURIComponent(collTarget)}/collect`, { method: 'POST', body: JSON.stringify({ agentKey: a.key, names: [s.name] }) });
+    setBusy(false);
+    onMsg(r.collected.length ? `已把「${s.name}」复制进资产库「${collTarget}」` : `「${s.name}」在资产库「${collTarget}」已存在，跳过复制`);
+    await refetch();
+  };
+  const mergeDup = async (s: AgentSkillView) => {
+    if (!collTarget) { onMsg('请先在下方选择一个目标资产库，再点「合并」'); return; }
+    // 先收编到资产库，再从 agent 目录移除自带副本，避免双重引用
+    const r = await api<CollectResult>(`/repos/${encodeURIComponent(collTarget)}/collect`, { method: 'POST', body: JSON.stringify({ agentKey: a.key, names: [s.name] }) });
+    if (r.collected.includes(s.name)) {
+      await api(`/agents/${a.key}/owned/${encodeURIComponent(s.name)}`, { method: 'DELETE' });
+      onMsg(`已把「${s.name}」收编进资产库「${collTarget}」并移除 agent 内的自带副本`);
+    } else {
+      onMsg(`「${s.name}」在资产库「${collTarget}」已存在，可直接在下方删除 agent 内的自带副本`);
+    }
+    await refetch();
   };
   const setActiveBtn = async () => {
     const cur = await api<string[]>('/activeAgents');
@@ -582,32 +609,72 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
 
       <div className="dict-block">
         <div className="dict-label">实际能用的技能（{skills?.length ?? 0}）</div>
+        <div className="seg" role="group" aria-label="展示样式">
+          <button className={`seg__opt${view === 'list' ? ' is-on' : ''}`} onClick={() => setView('list')}>☰ 列表</button>
+          <button className={`seg__opt${view === 'card' ? ' is-on' : ''}`} onClick={() => setView('card')}>▦ 卡片</button>
+        </div>
+        <div className="formline" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+          <span className="panel__hint" style={{ margin: 0 }}>自带技能可「收编到资产库 / 合并去重」，目标资产库：</span>
+          <select className="field" style={{ width: 220 }} value={collTarget} onChange={(e) => setCollTarget(e.target.value)}>
+            {repos.length === 0 && <option value="">（还没有资产库，请先到「资产库」新建）</option>}
+            {repos.map((rp) => <option key={rp.id} value={rp.id}>{rp.id}</option>)}
+          </select>
+          <span className="panel__hint">合并去重 = 复制进资产库并移除 agent 内的自带副本。</span>
+        </div>
         {skills == null ? <span className="panel__hint">加载中…</span> : skills.length === 0 ? (
           <span className="panel__hint">这个 AI 工具的技能目录是空的：还没有任何技能。</span>
         ) : (
-          <div className="checklist" style={{ gridTemplateColumns: '1fr', maxHeight: 320 }}>
-            {skills.map((s) => (
-              <div className="agent-skill" key={s.name}>
-                <span className={`badge ${s.source === 'owned' ? 'badge--off' : 'badge--state'}`}>{s.source === 'owned' ? 'AI 工具自带' : '本程序安装'}</span>
-                <span className="agent-skill-name" title={s.dir}>{s.name}</span>
-                {s.source === 'owned' ? (
-                  <>
-                    <span className="row__note" style={{ flex: 1 }}>{active ? '—' : '不随本程序管理'}</span>
-                    <button className="btn btn--ghost btn--sm" onClick={() => delOwn(s.name)}>删除</button>
-                  </>
-                ) : mode === 'manual' ? (
-                  <>
-                    <span className="row__note" style={{ flex: 1 }}>手动挑选</span>
-                    <label className="sw" title={s.active ? '关闭：从技能目录移除' : '开启：装到技能目录'}>
-                      <input type="checkbox" checked={s.active} disabled={busy} onChange={(e) => toggleManual(s.name, e.target.checked)} />
-                    </label>
-                  </>
-                ) : (
-                  <span className="row__note" style={{ flex: 1 }}>{s.active ? `已安装${presetSel ? `（来自套餐「${presetSel}」）` : '（来自全局已选套餐）'}` : '未安装'}</span>
-                )}
-              </div>
-            ))}
-          </div>
+          view === 'list' ? (
+            <div className="checklist" style={{ gridTemplateColumns: '1fr', maxHeight: 340 }}>
+              {skills.map((s) => <AgentSkillRow key={s.name} s={s} mode={mode} presetSel={presetSel} busy={busy} onToggle={(on) => toggleManual(s.name, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delOwn(s.name)} />)}
+            </div>
+          ) : (
+            <div className="grid-card" style={{ maxHeight: 420, overflow: 'auto' }}>
+              {skills.map((s) => <div className="card" key={s.name}><div className="card__inner"><AgentSkillRow s={s} mode={mode} presetSel={presetSel} busy={busy} onToggle={(on) => toggleManual(s.name, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delOwn(s.name)} /></div></div>)}
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* 单个 agent 技能行：标注来源/存储方式，并根据管理模式提供 收编 / 合并 / 删除 / 开关 */
+function AgentSkillRow({ s, mode, presetSel, busy, onToggle, onCollect, onMerge, onDel }: {
+  s: AgentSkillView; mode: 'preset' | 'manual'; presetSel: string; busy: boolean;
+  onToggle: (on: boolean) => void; onCollect: () => void; onMerge: () => void; onDel: () => void;
+}) {
+  const srcBadge = s.source === 'owned'
+    ? <span className="badge badge--off">AI 工具自带</span>
+    : s.repo
+      ? <span className="badge badge--family">来自资产库·{s.repo}</span>
+      : <span className="badge badge--state">本程序安装</span>;
+  const storeBadge = s.source === 'owned'
+    ? <span className="badge badge--off" title="技能本体就是一个真实目录，直接存在该工具的技能目录里">本体目录</span>
+    : s.link
+      ? <span className="badge badge--shared" title="这里只是指向资产库技能的一个软链，不占空间，资产库更新即生效">软链</span>
+      : <span className="badge badge--off" title="把资产库技能复制了一份到该工具目录，独立一份">复制到目录</span>;
+  const status = s.active ? <span className="badge badge--state">已启用</span> : <span className="badge badge--off">未启用</span>;
+  return (
+    <div className="agent-skill">
+      <span className="agent-skill-name" title={s.dir}>{s.name}</span>
+      <span className="row__note" style={{ flex: 1 }}>{s.source === 'owned' ? '不随本程序管理' : ''}</span>
+      <div className="skill-tags" style={{ border: 0, paddingTop: 0, justifySelf: 'end' }}>
+        {srcBadge}{storeBadge}{status}
+      </div>
+      <div className="row__actions">
+        {s.source === 'owned' ? (
+          <>
+            <button className="btn btn--ghost btn--sm" onClick={onCollect} disabled={busy} title="把这份技能复制进资产库">收编到资产库</button>
+            <button className="btn btn--ghost btn--sm" onClick={onMerge} disabled={busy} title="复制进资产库并从 agent 移除自带副本">合并去重</button>
+            <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
+          </>
+        ) : mode === 'manual' ? (
+          <label className="sw" title={s.active ? '关闭：从技能目录移除' : '开启：装到技能目录'}>
+            <input type="checkbox" checked={s.active} disabled={busy} onChange={(e) => onToggle(e.target.checked)} />
+          </label>
+        ) : (
+          <span className="row__note">{s.active ? `来自套餐${presetSel ? `「${presetSel}」` : ''}` : '未启用'}</span>
         )}
       </div>
     </div>
@@ -618,7 +685,7 @@ function AgentsView({ agents, state, onLoad, onMsg }: { agents: AgentView[]; sta
   const [only, setOnly] = useState<'all' | 'detected'>('all');
   const [sel, setSel] = useState<string | null>(null);
   const shown = only === 'all' ? agents : agents.filter((a) => a.installed);
-  const modeBadge = (a: AgentView) => a.mode === 'manual' ? '手动挑选' : (a.preset ? `按套餐「${a.preset}」` : '跟随全局已选套餐');
+  const modeBadge = (a: AgentView) => (a.mode ?? 'manual') === 'manual' ? '手动挑选' : (a.preset ? `按套餐「${a.preset}」` : '跟随全局已选套餐');
   if (sel) {
     const a = agents.find((x) => x.key === sel);
     if (a) return <AgentDetail a={a} presets={state?.presets ?? []} onLoad={onLoad} onMsg={onMsg} onBack={() => setSel(null)} />;
@@ -643,7 +710,7 @@ function AgentsView({ agents, state, onLoad, onMsg }: { agents: AgentView[]; sta
             <div className="row__note" style={{ minHeight: 'auto' }}>{a.installed ? '已找到技能目录' : <span className="badge badge--warn">未找到</span>} · 安装方式：{a.sync === 'symlink' ? '链接' : '复制'}</div>
             <div className="row__meta" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.globalDir}</div>
             <div className="skill-tags" style={{ marginTop: 'auto', paddingTop: 'var(--space-2)' }}>
-              <span className={`badge ${a.mode === 'manual' ? 'badge--state' : 'badge--shared'}`}>{modeBadge(a)}</span>
+              <span className={`badge ${(a.mode ?? 'manual') === 'manual' ? 'badge--state' : 'badge--shared'}`}>{modeBadge(a)}</span>
               {!a.installed && <span className="badge badge--off">未找到目录</span>}
             </div>
           </button>

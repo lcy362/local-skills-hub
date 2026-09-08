@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { HubConfig } from '../config/types.js';
-import { hasSkill } from './skill.js';
+import { hasSkill, Skill } from './skill.js';
 
 export type ToolCategory = 'coding' | 'lobster';
 
@@ -132,15 +132,21 @@ export interface AgentSkillDesc {
   source: 'managed' | 'owned';
   active: boolean;
   dir: string;
+  /** 目录项是否为软链（软链=指向某个源的链接；本体=真实目录存于 agent 目录） */
+  link: boolean;
+  /** 若来自资产库：skill id（name@来源） */
+  skillId?: string;
+  /** 若来自资产库：来源仓库 id */
+  repo?: string;
 }
 
 /**
- * 扫描 agent globalDir 下实际存在的 skill，标注来源。
- * desiredNames 为该 agent 当前期望部署的技能名字集合（由调用方用 desiredNamesFor 计算）。
- * - 软链，或名字在期望集合中 → managed
- * - 否则（真实目录且未期望） → owned
+ * 扫描 agent globalDir 下实际存在的 skill，标注来源与存储方式。
+ * desired 为 name→Skill 映射（该 agent 当前期望部署，由调用方用 computeDesired 构建）。
+ * - 软链，或名字在期望集合中 → managed（本系统投放）
+ * - 其余（真实目录且未期望） → owned（agent 自有）
  */
-export function describeAgentSkills(agentKey: string, cfg: HubConfig, desiredNames: Set<string>): AgentSkillDesc[] {
+export function describeAgentSkills(agentKey: string, cfg: HubConfig, desired: Map<string, Skill>): AgentSkillDesc[] {
   const def = findBuiltin(agentKey);
   if (!def) return [];
   const dir = resolveGlobalDir(def, cfg.agents[agentKey]?.globalDir);
@@ -150,11 +156,13 @@ export function describeAgentSkills(agentKey: string, cfg: HubConfig, desiredNam
     const p = path.join(dir, ent);
     let ls;
     try { ls = fs.lstatSync(p); } catch { continue; }
+    const sk = desired.get(ent);
     if (ls.isSymbolicLink()) {
-      out.push({ name: ent, source: 'managed', active: desiredNames.has(ent), dir: p });
+      out.push({ name: ent, source: 'managed', active: !!sk, dir: p, link: true, skillId: sk?.id, repo: sk?.source });
     } else if (ls.isDirectory() && hasSkill(p)) {
-      const managed = desiredNames.has(ent);
-      out.push({ name: ent, source: managed ? 'managed' : 'owned', active: managed, dir: p });
+      // 期望集合中有：本系统以复制方式部署的副本；否则为 agent 自有
+      if (sk) out.push({ name: ent, source: 'managed', active: true, dir: p, link: false, skillId: sk?.id, repo: sk?.source });
+      else out.push({ name: ent, source: 'owned', active: false, dir: p, link: false });
     }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));

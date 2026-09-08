@@ -25,9 +25,11 @@ export function computeDesired(cfg: ConfigStore, allSkills: Skill[], agentKey?: 
     if (sk) desired.set(id, sk);
   };
   const ov = agentKey ? cfg.data.agents[agentKey] : undefined;
-  if (ov?.mode === 'manual') {
+  // 默认「手动挑选」（未显式配置 mode）；显式 preset 才走套餐
+  const mode = ov?.mode ?? 'manual';
+  if (mode === 'manual') {
     // manualOn 支持按 skill id(name@来源) 或按名字（目录名）匹配，二者皆可
-    for (const id of ov.manualOn ?? []) {
+    for (const id of ov?.manualOn ?? []) {
       const sk = allSkills.find((s) => s.id === id) ?? allSkills.find((s) => s.name === id);
       if (sk) desired.set(sk.id, sk);
     }

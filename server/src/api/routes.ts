@@ -144,7 +144,8 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
   });
   r.get('/agents/:key/skills', (req, res) => {
     const key = req.params.key;
-    const desired = desiredNamesFor(cfg, library().skills, key);
+    const lib = library().skills;
+    const desired = new Map([...computeDesired(cfg, lib, key).values()].map((s) => [s.name, s]));
     res.json({ skills: describeAgentSkills(key, cfg.data, desired), active: cfg.data.activeAgents.includes(key) });
   });
   r.post('/agents/:key/sync', (req, res) => {
