@@ -177,10 +177,11 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   return res;
 }
 
-export function addProject(cfg: ConfigStore, projectPath: string, tags: string[], agents?: string[]): void {
+export function addProject(cfg: ConfigStore, projectPath: string, tags: string[], agents?: string[]): string {
   const abs = path.resolve(projectPath);
   if (!fs.existsSync(abs)) throw new Error(`路径不存在: ${abs}`);
   if (cfg.data.projects.some((p) => path.resolve(p.path) === abs)) throw new Error('项目已登记');
   cfg.data.projects.push({ path: abs, tags, agents: agents && agents.length ? agents : undefined });
   cfg.save();
+  return abs;
 }

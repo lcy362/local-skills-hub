@@ -845,8 +845,8 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
   const [agents, setAgents] = useState<AgentView[]>([]);
   const [sel, setSel] = useState<number | null>(null);
   const [path, setPath] = useState(''); const [tag, setTag] = useState('');
-  // 支持 project 目录的 agent 才是项目可投放对象
-  const projectAgents = agents.filter((a) => a.project);
+  // 支持 project 目录且非复制模式的 agent 才会被软链，才可作为「投放」对象
+  const projectAgents = agents.filter((a) => a.project && a.sync !== 'copy');
   const [addAgents, setAddAgents] = useState<string[]>([]);
   const [editingAgents, setEditingAgents] = useState<Record<number, { list: string[] } | undefined>>({});
   const reload = async () => {
