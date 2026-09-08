@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, StateView, AgentView, AgentSkillView, AgentSkillsResp, AddableSkill, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
+import { api, StateView, AgentView, AgentSkillView, AgentSkillsResp, AddableSkill, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSkillView, ProjectSkillsResp, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
 import { HealthView } from './HealthView';
 
 type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
@@ -843,6 +843,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
   const [projects, setProjects] = useState<ProjectView[]>([]);
   const [skills, setSkills] = useState<SkillView[]>([]);
   const [agents, setAgents] = useState<AgentView[]>([]);
+  const [sel, setSel] = useState<number | null>(null);
   const [path, setPath] = useState(''); const [tag, setTag] = useState('');
   // 支持 project 目录的 agent 才是项目可投放对象
   const projectAgents = agents.filter((a) => a.project);
@@ -862,11 +863,6 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
     if (!path.trim()) return;
     await api('/projects', { method: 'POST', body: JSON.stringify({ path: path.trim(), tags: tag.trim() ? tag.split(',').map((t) => t.trim()) : [], agents: addAgents }) });
     setPath(''); setTag(''); setAddAgents([]); reload();
-  };
-  const sync = async (i: number) => {
-    const r = await api<ProjectSyncResult>(`/projects/${i}/sync`, { method: 'POST', body: JSON.stringify({}) });
-    onMsg(`复制 ${r.copied.join(',') || '—'} · 移除 ${r.removed.length} · 软链 ${r.agentLinks.map((x) => x.agent).join(',') || '—'} 个 agent（每个 agent 将项目 skill 目录整体软链指向 .agents/skills）`);
-    reload();
   };
   const toggleTag = async (i: number, t: string) => {
     const pv = projects[i]; if (!pv) return;
@@ -888,9 +884,15 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
     if (p.agents && p.agents.length) return p.agents.map((k) => agents.find((a) => a.key === k)?.name ?? k).join('、');
     return '全部 agent';
   };
+
+  if (sel !== null) {
+    const proj = projects[sel];
+    if (proj) return <ProjectDetail index={sel} proj={proj} agents={agents} onLoad={reload} onMsg={onMsg} onBack={() => setSel(null)} />;
+  }
+
   return (
     <div className="panel">
-      <div className="panel__head"><h2 className="panel__title">项目</h2><span className="panel__hint">登记某个代码项目路径 + 标签后，带相同标签的 skill 会被复制进项目的 .agents，并软链到项目支持的 agent，实现"只在这项目里可用"</span></div>
+      <div className="panel__head"><h2 className="panel__title">项目</h2><span className="panel__hint">登记某个代码项目路径 + 标签后，带相同标签的 skill 会被复制进项目的 .agents，并软链到项目支持的 agent。点项目行「管理技能」可逐个开启/关闭</span></div>
       <div className="formline">
         <input className="field" style={{ flex: 1, minWidth: 240 }} placeholder="项目绝对路径" value={path} onChange={(e) => setPath(e.target.value)} />
         <button className="btn btn--ghost" onClick={() => pickDir((v) => { setPath(v); })} title="系统选择文件夹">📁 文件夹…</button>
@@ -911,11 +913,10 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
         return (
         <div className="row" key={p.path} style={{ marginTop: 10 }}>
           <div className="row__main">
-            <div className="row__title">{p.path}{p.hasAgents && <span className="badge badge--state">.agents</span>}</div>
+            <button className="row__title" style={{ background: 'none', border: 0, padding: 0, fontSize: 'inherit', cursor: 'pointer', textAlign: 'left', color: 'inherit' }} onClick={() => setSel(i)}>{p.path}{p.hasAgents && <span className="badge badge--state">.agents</span>}</button>
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {p.tags.map((t) => <button key={t} className="tag" onClick={() => toggleTag(i, t)}>{t} ✕</button>)}
-              {skills.filter((s) => s.tags.some((t) => p.tags.includes(t))).map((s) =>
-                <span key={s.id} className="tag tag--matched">✓ {s.name}</span>)}
+              {p.tags.length === 0 && <span className="row__note">（未设标签，暂无标签命中技能；可到「管理技能」逐个开启）</span>}
             </div>
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <span className="row__note">投放：{agentsLabel(p)}</span>
@@ -924,7 +925,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
               ))}
               {!editing && (
                 <>
-                  <button className="btn btn--ghost btn--sm" onClick={() => setEditingAgents((prev) => ({ ...prev, [i]: { list: p.agents ?? [] } }))}>编辑</button>
+                  <button className="btn btn--ghost btn--sm" onClick={() => setEditingAgents((prev) => ({ ...prev, [i]: { list: p.agents ?? [] } }))}>编辑投放</button>
                   {p.agents && p.agents.length > 0 && <button className="btn btn--ghost btn--sm" onClick={() => setProjectAgents(i, [])} title="恢复为投放给全部 agent">全部</button>}
                 </>
               )}
@@ -936,10 +937,154 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
               )}
             </div>
           </div>
-          <div className="row__actions"><button className="btn btn--sm" onClick={() => sync(i)} title="把匹配标签的 skill 复制到本项目 .agents/skills，并将本项目支持的 agent 的项目 skill 目录整体软链指向它">同步 .agents</button></div>
+          <div className="row__actions"><button className="btn btn--primary btn--sm" onClick={() => setSel(i)} title="查看与管理本项目的 skill（逐个开启/关闭）">管理技能</button></div>
         </div>
         );
       })}
+      {projects.length === 0 && <div className="empty">还没有项目。填路径点「登记项目」即可开始；填写标签后会自动投放带相同标签的 skill，也可进入「管理技能」逐个挑选。</div>}
+    </div>
+  );
+}
+
+/* ================= Project detail (与 agent 技能管理对齐) ================= */
+function ProjectDetail({ index, proj, agents, onLoad, onMsg, onBack }: {
+  index: number; proj: ProjectView; agents: AgentView[];
+  onLoad: () => void; onMsg: (m: string) => void; onBack: () => void;
+}) {
+  const [skills, setSkills] = useState<ProjectSkillView[] | null>(null);
+  const [addable, setAddable] = useState<AddableSkill[]>([]);
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const r = await api<ProjectSkillsResp>(`/projects/${index}/skills`);
+    setSkills(r.skills); setAddable(r.addable);
+  };
+  useEffect(() => { load(); }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refetch = async () => { onLoad(); await load(); };
+  const putOver = (patch: Record<string, unknown>) => api(`/projects/${index}/skills`, { method: 'PUT', body: JSON.stringify(patch) });
+
+  const toggleSkill = async (s: ProjectSkillView, on: boolean) => {
+    setBusy(true);
+    if (!on) {
+      if (s.reason === 'tag') {
+        const off = new Set(proj.explicitOff ?? []); off.add(s.skillId ?? s.name);
+        await putOver({ explicitOff: [...off] });
+      } else {
+        const onSet = new Set(proj.explicitOn ?? []); if (s.skillId) onSet.delete(s.skillId); onSet.delete(s.name);
+        await putOver({ explicitOn: [...onSet] });
+      }
+    } else if (s.disableVia === 'off') {
+      const off = new Set(proj.explicitOff ?? []); if (s.skillId) off.delete(s.skillId); off.delete(s.name);
+      await putOver({ explicitOff: [...off] });
+    } else {
+      const onSet = new Set(proj.explicitOn ?? []); onSet.add(s.skillId ?? s.name);
+      await putOver({ explicitOn: [...onSet] });
+    }
+    setBusy(false); await refetch();
+  };
+  const addFromLibrary = async (id: string) => {
+    setBusy(true);
+    const onSet = new Set(proj.explicitOn ?? []); onSet.add(id);
+    await putOver({ explicitOn: [...onSet] });
+    setBusy(false); await refetch();
+  };
+  const doSync = async () => {
+    setBusy(true);
+    const r = await api<ProjectSyncResult>(`/projects/${index}/sync`, { method: 'POST', body: JSON.stringify({}) });
+    setBusy(false);
+    onMsg(`已同步：复制 ${r.copied.join(',') || '—'} · 移除 ${r.removed.length} · 软链 ${r.agentLinks.map((x) => x.agent).join(',') || '—'}`);
+    await refetch();
+  };
+  const cleanResidual = async (s: ProjectSkillView) => {
+    if (!confirm(`清理 .agents/skills 中的残留「${s.name}」目录？`)) return;
+    setBusy(true);
+    await putOver({}); // 触发一次同步，syncProject 会移除不在期望集的含 SKILL.md 目录
+    setBusy(false); await refetch();
+  };
+  const counts = skills ? {
+    on: skills.filter((x) => x.wanted && x.present).length,
+    pend: skills.filter((x) => x.wanted && !x.present).length,
+    off: skills.filter((x) => x.wanted && x.offOverride).length,
+    own: skills.filter((x) => x.reason === 'own').length,
+  } : null;
+  const agentsLabel = proj.agents && proj.agents.length
+    ? proj.agents.map((k) => agents.find((a) => a.key === k)?.name ?? k).join('、')
+    : '全部 agent';
+
+  return (
+    <div className="panel">
+      <div className="panel__head">
+        <button className="btn btn--ghost btn--sm" onClick={onBack}>← 返回</button>
+        <h2 className="panel__title">{proj.path}</h2>
+        <span className="panel__hint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>投放：{agentsLabel} · 标签命中交集，可逐个覆盖</span>
+        <div className="panel__actions"><button className="btn btn--sm" onClick={doSync} disabled={busy}>同步 .agents</button></div>
+      </div>
+      <div className="dict-block">
+        <div className="dict-label">技能清单
+          {counts && <span className="row__note">  · 已复制 {counts.on} / 待复制 {counts.pend} / 已停用 {counts.off} / 残留 {counts.own}</span>}
+        </div>
+        <div className="formline" style={{ flexWrap: 'wrap' }}>
+          <span className="panel__hint" style={{ margin: 0 }}>默认投放「与项目标签匹配」的 skill；可对任一技能单独开启/关闭，或在下方从资产库补入。</span>
+          <select className="field" style={{ width: 220, marginLeft: 'auto' }} value="" disabled={busy} onChange={(e) => { if (e.target.value) addFromLibrary(e.target.value); }} title="从资产库额外给本项目开启一个技能">
+            <option value="">＋ 从资产库添加…</option>
+            {addable.map((x) => <option key={x.id} value={x.id}>{x.name}（{x.repo}）</option>)}
+          </select>
+        </div>
+        {skills == null ? <span className="panel__hint">加载中…</span> : skills.length === 0 ? (
+          <span className="panel__hint">本项目还没有技能。可填写标签匹配，或从上方「从资产库添加」逐个开启。</span>
+        ) : (
+          <div className="checklist" style={{ gridTemplateColumns: '1fr', maxHeight: 480, overflow: 'auto' }}>
+            {skills.map((s) => <ProjectSkillRow key={s.name} s={s} busy={busy} onToggle={(on) => toggleSkill(s, on)} onDel={() => cleanResidual(s)} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectSkillRow({ s, busy, onToggle, onDel }: {
+  s: ProjectSkillView; busy: boolean;
+  onToggle: (on: boolean) => void; onDel: () => void;
+}) {
+  const title = s.title || s.name;
+  const reasonBadge =
+    s.reason === 'own' ? <span className="badge badge--off">自带</span>
+    : s.reason === 'tag'
+      ? (s.offOverride ? <span className="badge badge--off">标签·已停用</span> : <span className="badge badge--family">标签命中</span>)
+      : <span className="badge badge--state">手动开启</span>;
+  const storeBadge =
+    s.store === 'pending' ? <span className="badge badge--off">待复制</span>
+    : s.store === 'copy' ? <span className="badge badge--off" title="复制 .agents/skills 中的真实目录">复制到 .agents</span>
+    : <span className="badge badge--off" title="项目 .agents 目录里的真实目录">本体目录</span>;
+  const stateBadge =
+    s.wanted && s.present ? <span className="badge badge--state">已复制</span>
+    : s.wanted ? <span className="badge badge--warn">待复制</span>
+    : s.offOverride ? <span className="badge badge--off">已停用</span>
+    : <span className="badge badge--off">残留</span>;
+  const actions = s.reason === 'own' ? (
+    <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>清理</button>
+  ) : s.wanted ? (
+    <label className="sw" title={s.present ? '关闭：从 .agents 移除（移出期望）' : '取消：不再需要，移除期望'}>
+      <input type="checkbox" checked disabled={busy} onChange={() => onToggle(false)} />
+    </label>
+  ) : s.offOverride ? (
+    <button className="btn btn--ghost btn--sm" onClick={() => onToggle(true)} title="重新启用（移出停用列表）">重新启用</button>
+  ) : (
+    <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy} title="清理残留目录">清理</button>
+  );
+  return (
+    <div className="ss-card" data-own={s.reason === 'own' || undefined}>
+      <div className="ss-card__head">
+        <span className="ss-card__title" title={s.dir}>{title}</span>
+        <span className="ss-card__sub">@{s.name}</span>
+      </div>
+      <div className="skill-tags" style={{ border: 0, paddingTop: 0 }}>
+        {reasonBadge}{storeBadge}{stateBadge}
+      </div>
+      <div className="ss-card__desc">{s.description || '（无描述）'}</div>
+      <div className="ss-card__foot">
+        <span className="row__note">{s.reason === 'own' ? '.agents 自带，不随本程序管理' : s.present ? s.dir : '尚未复制，点「同步 .agents」装上'}</span>
+        <div className="row__actions">{actions}</div>
+      </div>
     </div>
   );
 }

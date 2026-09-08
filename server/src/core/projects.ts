@@ -2,16 +2,104 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ConfigStore } from '../config/store.js';
 import { Skill } from './skill.js';
+import { readSkill } from './skill.js';
 import { listAgents, resolveProjectDir } from './agents.js';
+import { ProjectLink } from '../config/types.js';
 
-/** 项目应匹配的 skill：skill 的标签 ∩ 项目标签 非空 */
-export function desiredSkillsForProject(cfg: ConfigStore, projectTags: string[], allSkills: Skill[]): Skill[] {
-  const tagSet = new Set(projectTags);
-  if (tagSet.size === 0) return [];
+/** 项目的期望集 = 标签命中 ∪ 逐个开启 − 逐个关闭 */
+export function projectedSkills(cfg: ConfigStore, proj: ProjectLink, allSkills: Skill[]): Skill[] {
+  const tagSet = new Set(proj.tags);
+  const on = new Set(proj.explicitOn ?? []);
+  const off = new Set(proj.explicitOff ?? []);
   return allSkills.filter((s) => {
     const tags = cfg.data.skillMeta[s.id]?.tags ?? [];
-    return tags.some((t) => tagSet.has(t));
+    const inTag = tagSet.size > 0 && tags.some((t) => tagSet.has(t));
+    if (!(inTag || on.has(s.id))) return false;
+    return !off.has(s.id);
   });
+}
+
+export interface ProjectSkillRow {
+  skillId?: string;
+  name: string;
+  title?: string;
+  description?: string;
+  source: 'managed' | 'owned';
+  wanted: boolean;
+  present: boolean;
+  store: 'copy' | 'pending' | 'own';
+  /** 来源原因：标签命中 / 逐个开启 / 自带 */
+  reason: 'tag' | 'manual' | 'own';
+  /** 标签命中但被逐个关闭 */
+  offOverride?: boolean;
+  /** 关闭该技能时应走哪个叠加集：'off'=加入 explicitOff（标签命中成员）；'on'=移出 explicitOn */
+  disableVia?: 'off' | 'on';
+  repo?: string;
+  dir?: string;
+}
+
+/** 构建项目技能行：期望集（并按项目配置覆盖）∪ 目录已存在。与 agent 技能行逻辑对齐。 */
+export function projectSkillRows(cfg: ConfigStore, proj: ProjectLink, allSkills: Skill[]): ProjectSkillRow[] {
+  const onIds = new Set(proj.explicitOn ?? []);
+  const offIds = new Set(proj.explicitOff ?? []);
+  const agentsRoot = path.join(proj.path, '.agents', 'skills');
+  const presentNames = new Set<string>();
+  const presentIsLink = new Map<string, boolean>();
+  if (fs.existsSync(agentsRoot)) {
+    for (const e of fs.readdirSync(agentsRoot, { withFileTypes: true })) {
+      presentNames.add(e.name);
+      presentIsLink.set(e.name, e.isSymbolicLink());
+    }
+  }
+  const rows: ProjectSkillRow[] = [];
+  const desired = projectedSkills(cfg, proj, allSkills);
+
+  // 1) 期望集行
+  for (const s of desired) {
+    const inTag = (cfg.data.skillMeta[s.id]?.tags ?? [])
+      .some((t) => (proj.tags ?? []).includes(t));
+    const inOn = onIds.has(s.id);
+    const present = presentNames.has(s.name) && !presentIsLink.get(s.name);
+    const off = offIds.has(s.id);
+    rows.push({
+      skillId: s.id, name: s.name, title: s.name, description: s.description,
+      source: 'managed', wanted: true, present,
+      store: present ? 'copy' : 'pending',
+      reason: inOn ? 'manual' : 'tag',
+      offOverride: inTag && off ? true : undefined,
+      disableVia: inTag ? 'off' : 'on',
+      repo: s.source,
+      dir: present ? path.join(agentsRoot, s.name) : undefined,
+    });
+  }
+
+  // 2) 目录中存在但不在期望集（残留 / 自带）
+  const desiredNames = new Set(desired.map((s) => s.name));
+  for (const name of presentNames) {
+    if (desiredNames.has(name)) continue;
+    const isLink = presentIsLink.get(name) ?? false;
+    if (isLink) continue; // 软链不视作项目内技能，略过
+    const p = path.join(agentsRoot, name);
+    const meta = readSkill(p);
+    rows.push({
+      name, title: meta?.name ?? name, description: meta?.description,
+      source: 'owned', wanted: false, present: true, store: 'own',
+      reason: 'own', dir: p,
+    });
+  }
+
+  return rows.sort((a, b) => Number(b.wanted) - Number(a.wanted) || a.name.localeCompare(b.name));
+}
+
+/** 可从资产库补入本项目的候选：不在期望集、不在目录、也未被逐个关闭 */
+export function projectAddable(cfg: ConfigStore, proj: ProjectLink, allSkills: Skill[]): { id: string; name: string; repo: string }[] {
+  const desired = new Set(projectedSkills(cfg, proj, allSkills).map((s) => s.name));
+  const present = projectSkillRows(cfg, proj, allSkills).filter((r) => r.present).map((r) => r.name);
+  const off = new Set(proj.explicitOff ?? []);
+  const presentSet = new Set(present);
+  return allSkills
+    .filter((s) => !desired.has(s.name) && !presentSet.has(s.name) && !off.has(s.id))
+    .map((s) => ({ id: s.id, name: s.name, repo: s.source }));
 }
 
 export interface ProjectSyncResult {
@@ -24,7 +112,7 @@ export interface ProjectSyncResult {
 
 /**
  * 项目级同步：
- * 1) 把标签匹配的 skill 本体复制到 <project>/.agents/skills
+ * 1) 把项目期望集（标签匹配 ∪ 逐个开启 − 逐个关闭）的 skill 本体复制到 <project>/.agents/skills
  * 2) 其他 agent 的项目级目录软链到 .agents（共享同一份副本，服务团队协作）
  */
 export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Skill[]): ProjectSyncResult {
@@ -32,7 +120,7 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   const proj = cfg.data.projects.find((p) => path.resolve(p.path) === path.resolve(projectPath));
   if (!proj) { res.errors.push('项目未登记'); return res; }
 
-  const desired = desiredSkillsForProject(cfg, proj.tags, allSkills);
+  const desired = projectedSkills(cfg, proj, allSkills);
   const agentsRoot = path.join(projectPath, '.agents', 'skills');
   fs.mkdirSync(agentsRoot, { recursive: true });
   const seen = new Set<string>();

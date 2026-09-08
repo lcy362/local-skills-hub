@@ -63,6 +63,10 @@ export interface ProjectLink {
   tags: string[];
   /** 项目支持的 agent key 列表；省略 = 全部支持 */
   agents?: string[];
+  /** 项目内逐个开启的 skill id（name@来源）：在标签命中之外显式补入 */
+  explicitOn?: string[];
+  /** 项目内逐个关闭的 skill id：从期望集里裁剪（仅标签命中成员可按此关闭） */
+  explicitOff?: string[];
 }
 
 export interface HubConfig {

@@ -9,7 +9,7 @@ import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
 import { syncActive, diffSync, computeDesired, desiredContext } from '../core/sync.js';
 import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
-import { addProject, syncProject } from '../core/projects.js';
+import { addProject, syncProject, projectSkillRows, projectAddable } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
 import { previewCollect, collectAgentSkill } from '../core/collect.js';
 import { readTags, writeTags } from '../core/repo-tags.js';
@@ -279,6 +279,30 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     proj.agents = list.length ? list : undefined; // 省略/空 = 全部支持
     cfg.save();
     res.json(proj);
+  });
+  // 项目技能列表（与 agent 技能管理对齐）+ 逐个开关覆盖
+  r.get('/projects/:id/skills', (req, res) => {
+    const id = Number(req.params.id);
+    const proj = cfg.data.projects[id];
+    if (!proj) return res.status(404).json({ error: 'project not found' });
+    const lib = library();
+    res.json({ skills: projectSkillRows(cfg, proj, lib.skills), addable: projectAddable(cfg, proj, lib.skills) });
+  });
+  r.put('/projects/:id/skills', (req, res) => {
+    const id = Number(req.params.id);
+    const proj = cfg.data.projects[id];
+    if (!proj) return res.status(404).json({ error: 'project not found' });
+    const setList = (field: 'explicitOn' | 'explicitOff') => {
+      if (field in (req.body ?? {})) {
+        const list = Array.isArray(req.body[field]) ? req.body[field] : [];
+        if (list.length) proj[field] = list; else delete proj[field];
+      }
+    };
+    setList('explicitOn'); setList('explicitOff');
+    cfg.save();
+    const lib = library();
+    const result = syncProject(cfg, proj.path, lib.skills); // 立即让 .agents 反映覆盖后的期望集
+    res.json({ ...result });
   });
   r.post('/projects/:id/sync', (req, res) => {
     const id = Number(req.params.id);
