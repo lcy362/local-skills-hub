@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { HubConfig } from '../config/types.js';
 import type { Skill } from './skill.js';
+import { readSkill } from './skill.js';
 import type { DesiredContext } from './sync.js';
 
 export type ToolCategory = 'coding' | 'lobster';
@@ -130,6 +131,9 @@ export function listAgents(cfg: HubConfig): AgentView[] {
 
 export interface AgentSkillRow {
   name: string;
+  /** 展示用标题（SKILL.md 的 name，缺省回落到目录名） */
+  title?: string;
+  description?: string;
   source: 'managed' | 'owned';
   /** 期望部署与否（wanted） */
   wanted: boolean;
@@ -137,6 +141,8 @@ export interface AgentSkillRow {
   present: boolean;
   /** 存储/部署方式：软链 / 复制到目录 / 本体(自带) / 待部署(pending) */
   store: 'symlink' | 'copy' | 'own' | 'pending';
+  /** 软链目标路径（store=symlink 时） */
+  linkTarget?: string;
   /** 来源原因：套餐基准 / 手动覆盖 / 自带 */
   reason: 'preset' | 'manual' | 'own';
   /** 套餐基准里被显式关闭（offOverride）→ 该行不 wanted，提示"套餐成员·已停用" */
@@ -175,6 +181,7 @@ export function agentSkillRows(agentKey: string, cfg: HubConfig, allSkills: Skil
   }
 
   const isOff = (name: string) => ctx.offIds.has(name) || ctx.offNames.has(name);
+  const linkTo = (p: string) => { try { return fs.readlinkSync(p); } catch { return undefined; } };
 
   // 2) 期望集行（无论是否存在）：wanted=true
   for (const skill of desired.values()) {
@@ -185,12 +192,15 @@ export function agentSkillRows(agentKey: string, cfg: HubConfig, allSkills: Skil
     const isLinkEnt = !!ent && (ent === 'symlink' || (typeof ent !== 'string' && ent.isSymbolicLink()));
     let store: AgentSkillRow['store'] = 'pending';
     if (present) store = isLinkEnt ? 'symlink' : 'copy';
+    const dirPath = present ? path.join(dir, skill.name) : undefined;
     rows.push({
-      name: skill.name, source: 'managed', wanted: true, present, store,
+      name: skill.name, title: skill.name, description: skill.description,
+      source: 'managed', wanted: true, present, store,
+      linkTarget: present && isLinkEnt ? linkTo(dirPath!) : undefined,
       reason: inBase ? 'preset' : 'manual',
       preset: ctx.presetOf.get(skill.name),
       repo: skill.source, skillId: skill.id,
-      dir: present ? path.join(dir, skill.name) : undefined,
+      dir: dirPath,
       link: present ? isLinkEnt : undefined,
       disableVia: inBase && !inOn ? 'off' : 'on',
     });
@@ -206,17 +216,25 @@ export function agentSkillRows(agentKey: string, cfg: HubConfig, allSkills: Skil
       // 软链但不期望：来自套餐但已被关闭 / 或旧遗留 → 残留行
       const offOverride = ctx.baselineNames.has(name) && isOff(name);
       const src = allSkills.find((s) => s.name === name);
+      const p = path.join(dir, name);
       rows.push({
-        name, source: 'managed', wanted: false, present: true, store: 'symlink',
+        name, title: name,
+        description: readSkill(p)?.description, // readSkill 顺着软链读到目标
+        source: 'managed', wanted: false, present: true, store: 'symlink',
+        linkTarget: linkTo(p),
         reason: 'preset', offOverride,
         preset: ctx.presetOf.get(name),
         skillId: src?.id, repo: src?.source,
-        dir: path.join(dir, name), link: true,
+        dir: p, link: true,
       });
     } else {
       const p = path.join(dir, name);
       if (!isSkillDir(p)) continue; // 只把真正的技能目录视作自带
-      rows.push({ name, source: 'owned', wanted: false, present: true, store: 'own', reason: 'own', dir: p, link: false });
+      const meta = readSkill(p);
+      rows.push({
+        name, title: meta?.name ?? name, description: meta?.description,
+        source: 'owned', wanted: false, present: true, store: 'own', reason: 'own', dir: p, link: false,
+      });
     }
   }
 

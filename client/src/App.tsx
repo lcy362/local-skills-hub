@@ -509,7 +509,7 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
   const [presetSel, setPresetSel] = useState(a.preset ?? '');
   const [repos, setRepos] = useState<RepoView[]>([]);
   const [collTarget, setCollTarget] = useState('');
-  const [view, setView] = useState<'list' | 'card'>('list');
+  const [view, setView] = useState<'list' | 'card'>('card');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -675,8 +675,8 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
             {skills.map((s) => <AgentSkillRow key={s.name} s={s} busy={busy} onToggle={(on) => toggleSkill(s, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delSkill(s)} />)}
           </div>
         ) : (
-          <div className="grid-card" style={{ maxHeight: 420, overflow: 'auto' }}>
-            {skills.map((s) => <div className="card" key={s.name}><div className="card__inner"><AgentSkillRow s={s} busy={busy} onToggle={(on) => toggleSkill(s, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delSkill(s)} /></div></div>)}
+          <div className="grid-card" style={{ maxHeight: 440, overflow: 'auto', alignItems: 'start' }}>
+            {skills.map((s) => <AgentSkillRow key={s.name} s={s} busy={busy} onToggle={(on) => toggleSkill(s, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delSkill(s)} />)}
           </div>
         )}
       </div>
@@ -684,12 +684,13 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
   );
 }
 
-/* 单个 agent 技能行：状态 = 期望 × 存在，来源/存储各自标注，
+/* 单个 agent 技能卡片：与资产库一致的 标题+描述 展示；软链展示目标。
    操作只由「状态 + 来源」决定，不再两两交叉判断 */
 function AgentSkillRow({ s, busy, onToggle, onCollect, onMerge, onDel }: {
   s: AgentSkillView; busy: boolean;
   onToggle: (on: boolean) => void; onCollect: () => void; onMerge: () => void; onDel: () => void;
 }) {
+  const title = s.title || s.name;
   const reasonBadge =
     s.reason === 'own' ? <span className="badge badge--off">自带</span>
     : s.reason === 'preset'
@@ -697,7 +698,7 @@ function AgentSkillRow({ s, busy, onToggle, onCollect, onMerge, onDel }: {
       : <span className="badge badge--state">手动开启</span>;
   const storeBadge =
     s.store === 'pending' ? <span className="badge badge--off">待部署</span>
-    : s.store === 'symlink' ? <span className="badge badge--shared" title="指向资产库技能的一个软链，不占空间，资产库更新即生效">软链</span>
+    : s.store === 'symlink' ? <span className="badge badge--shared" title={s.linkTarget ? `指向：${s.linkTarget}` : '软链，资产库更新即生效'}>软链</span>
     : s.store === 'copy' ? <span className="badge badge--off" title="把资产库技能复制了一份到该工具目录">复制到目录</span>
     : <span className="badge badge--off" title="技能本体就是该工具技能目录里的真实目录">本体目录</span>;
   const stateBadge =
@@ -706,31 +707,42 @@ function AgentSkillRow({ s, busy, onToggle, onCollect, onMerge, onDel }: {
     : s.offOverride ? <span className="badge badge--off">已停用</span>
     : s.source === 'owned' ? <span className="badge badge--state">在用</span>
     : <span className="badge badge--off">残留</span>;
+
+  const actions = s.reason === 'own' ? (
+    <>
+      <button className="btn btn--ghost btn--sm" onClick={onCollect} disabled={busy} title="把这份技能复制进资产库">收编</button>
+      <button className="btn btn--ghost btn--sm" onClick={onMerge} disabled={busy} title="复制进资产库并删除本目录副本，避免重复">合并去重</button>
+      <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
+    </>
+  ) : s.wanted ? (
+    <label className="sw" title={s.present ? '关闭：从技能目录移除（移出期望）' : '取消：不再需要，移除期望'}>
+      <input type="checkbox" checked disabled={busy} onChange={() => onToggle(false)} />
+    </label>
+  ) : s.offOverride ? (
+    <>
+      <button className="btn btn--ghost btn--sm" onClick={() => onToggle(true)} title="重新启用（移出停用列表）">重新启用</button>
+      <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
+    </>
+  ) : (
+    <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy} title="清理残留目录">清理</button>
+  );
+
   return (
-    <div className="agent-skill">
-      <span className="agent-skill-name" title={s.dir}>{s.name}</span>
-      <div className="skill-tags" style={{ border: 0, paddingTop: 0, justifySelf: 'end' }}>
+    <div className="ss-card" data-own={s.reason === 'own' || undefined}>
+      <div className="ss-card__head">
+        <span className="ss-card__title" title={s.dir}>{title}</span>
+        <span className="ss-card__sub">@{s.name}{s.preset ? ` · ${s.preset}` : ''}</span>
+      </div>
+      <div className="skill-tags" style={{ border: 0, paddingTop: 0 }}>
         {reasonBadge}{storeBadge}{stateBadge}
       </div>
-      <div className="row__actions">
-        {s.reason === 'own' ? (
-          <>
-            <button className="btn btn--ghost btn--sm" onClick={onCollect} disabled={busy} title="把这份技能复制进资产库">收编</button>
-            <button className="btn btn--ghost btn--sm" onClick={onMerge} disabled={busy} title="复制进资产库并删除本目录副本，避免重复">合并去重</button>
-            <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
-          </>
-        ) : s.wanted ? (
-          <label className="sw" title={s.present ? '关闭：从技能目录移除（移出期望）' : '取消：不再需要，移除期望'}>
-            <input type="checkbox" checked disabled={busy} onChange={() => onToggle(false)} />
-          </label>
-        ) : s.offOverride ? (
-          <>
-            <button className="btn btn--ghost btn--sm" onClick={() => onToggle(true)} title="重新启用（移出停用列表）">重新启用</button>
-            <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
-          </>
-        ) : (
-          <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy} title="清理残留目录">清理</button>
-        )}
+      <div className="ss-card__desc">{s.description || '（无描述）'}</div>
+      {s.store === 'symlink' && (
+        <code className="ss-card__link" title="软链目标：资产库技能源的位置">→ {s.linkTarget}</code>
+      )}
+      <div className="ss-card__foot">
+        <span className="row__note">{s.reason === 'own' ? 'AI 工具自带，不随本程序管理' : s.present ? s.dir : '尚未部署，点「立即生效」装上'}</span>
+        <div className="row__actions">{actions}</div>
       </div>
     </div>
   );
