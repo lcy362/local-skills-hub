@@ -36,12 +36,14 @@ export interface AgentOverride {
   globalDir?: string;
   projectDir?: string;
   sync?: SyncMode;
-  /** 技能管理模式；缺省 = 'preset'（兼容现状） */
+  /** 技能管理模式；缺省 = 'manual'（手动挑选） */
   mode?: AgentManageMode;
-  /** mode=preset 时关联的 preset 名；缺省则沿用全局激活 presets */
+  /** mode=preset 时的基准套餐名；缺省则跟随全局激活 presets */
   preset?: string;
-  /** mode=manual 时手动开启的 skill id（name@来源） */
-  manualOn?: string[];
+  /** 显式开启的 skill id（name@来源）：manual=全部依赖此；preset=基准之上额外开启 */
+  explicitOn?: string[];
+  /** 显式关闭的 skill id（仅 preset 模式下在基准之上裁剪某些成员） */
+  explicitOff?: string[];
 }
 
 export interface Preset {

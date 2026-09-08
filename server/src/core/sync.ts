@@ -11,39 +11,81 @@ export interface SyncResult {
   failed: { skill: string; reason: string }[];
 }
 
+export interface DesiredContext {
+  mode: 'preset' | 'manual';
+  /** 显式关联的基准套餐名（preset 模式）；未指定为空串 */
+  preset: string;
+  /** 最终期望：id→Skill（= 基准 ∪ explicitOn − explicitOff） */
+  desired: Map<string, Skill>;
+  /** 基准（套餐）成员的名字集合 */
+  baselineNames: Set<string>;
+  /** 名字 → 来源套餐名（基准成员用；用于标注"来自套餐X"） */
+  presetOf: Map<string, string>;
+  /** 显式开启成员的名字集合（手动挑选基础 / 套餐之上额外） */
+  onNames: Set<string>;
+  /** 显式关闭成员的 id/名字（套餐之上裁剪）；offNames 为名字归一化 */
+  offIds: Set<string>;
+  offNames: Set<string>;
+}
+
+/** 名字归一化：把 id(name@来源) 或纯名字映射为最终的技能名（目录名） */
+function nameOf(id: string): string {
+  const at = id.lastIndexOf('@');
+  return at >= 0 ? id.slice(0, at) : id;
+}
+
 /**
- * 计算某 agent 应生效的 skill 集合。
- * - mode=manual：手动开启的 manualOn 成员
- * - mode=preset 且指定 preset：该 preset 成员
- * - 其余（缺省/未指定）：所有「激活 preset」的并集（历史行为）
- * agentKey 为空时等价于历史 computeDesired（全局激活 presets）。
+ * 解析某 agent 的期望技能上下文。
+ * 期望 = 基准 ∪ explicitOn − explicitOff，其中：
+ * - mode=manual：基准为空（期望全靠 explicitOn）
+ * - mode=preset + preset：基准 = 该套餐成员
+ * - mode=preset，未指定 preset：基准 = 所有「激活 presets」并集
+ * agentKey 为空时，desired 仅含全局激活 presets 成员（兼容全局同步）。
+ */
+export function desiredContext(cfg: ConfigStore, allSkills: Skill[], agentKey?: string): DesiredContext {
+  const ov = agentKey ? cfg.data.agents[agentKey] : undefined;
+  const mode = ov?.mode ?? 'manual';
+  const onIds = ov?.explicitOn ?? [];
+  const offIds = new Set(ov?.explicitOff ?? []);
+  const offNames = new Set([...offIds].map(nameOf));
+  const baselineNames = new Set<string>();
+  const presetOf = new Map<string, string>();
+  if (mode === 'preset') {
+    const pushBase = (id: string, preset: string) => {
+      baselineNames.add(nameOf(id));
+      if (!presetOf.has(nameOf(id))) presetOf.set(nameOf(id), preset);
+    };
+    const p = ov?.preset ? cfg.data.presets.find((x) => x.name === ov.preset) : undefined;
+    if (p) { for (const id of p.skills) pushBase(id, p.name); }
+    else { for (const q of cfg.data.presets) if (q.active) for (const id of q.skills) pushBase(id, q.name); }
+  }
+  const desired = new Map<string, Skill>();
+  const addById = (id: string) => {
+    if (offIds.has(id) || offNames.has(nameOf(id))) return;
+    const name = nameOf(id);
+    const sk = allSkills.find((s) => s.id === id) ?? allSkills.find((s) => s.name === name);
+    if (sk) desired.set(sk.id, sk);
+  };
+  for (const id of baselineNames) addById(id);
+  for (const id of onIds) addById(id);
+  return {
+    mode,
+    preset: ov?.preset ?? '',
+    desired,
+    baselineNames,
+    presetOf,
+    onNames: new Set(onIds.map(nameOf)),
+    offIds,
+    offNames,
+  };
+}
+
+/**
+ * 计算某 agent 应生效的 skill 集合（期望集）。
+ * 依赖 desiredContext 的统一解析；语义见其文档。
  */
 export function computeDesired(cfg: ConfigStore, allSkills: Skill[], agentKey?: string): Map<string, Skill> {
-  const desired = new Map<string, Skill>();
-  const add = (id: string) => {
-    const sk = allSkills.find((s) => s.id === id);
-    if (sk) desired.set(id, sk);
-  };
-  const ov = agentKey ? cfg.data.agents[agentKey] : undefined;
-  // 默认「手动挑选」（未显式配置 mode）；显式 preset 才走套餐
-  const mode = ov?.mode ?? 'manual';
-  if (mode === 'manual') {
-    // manualOn 支持按 skill id(name@来源) 或按名字（目录名）匹配，二者皆可
-    for (const id of ov?.manualOn ?? []) {
-      const sk = allSkills.find((s) => s.id === id) ?? allSkills.find((s) => s.name === id);
-      if (sk) desired.set(sk.id, sk);
-    }
-    return desired;
-  }
-  if (ov?.preset) {
-    const p = cfg.data.presets.find((x) => x.name === ov.preset);
-    if (p) { for (const id of p.skills) add(id); return desired; }
-  }
-  for (const p of cfg.data.presets) {
-    if (!p.active) continue;
-    for (const id of p.skills) add(id);
-  }
-  return desired;
+  return desiredContext(cfg, allSkills, agentKey).desired;
 }
 
 /** 某 agent 期望部署的 skill 名字集合（供来源标注/清理判断） */

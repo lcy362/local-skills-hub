@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { ConfigStore } from '../config/store.js';
-import { listAgents, describeAgentSkills, findBuiltin, resolveGlobalDir } from '../core/agents.js';
+import { listAgents, agentSkillRows, findBuiltin, resolveGlobalDir } from '../core/agents.js';
 import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
-import { syncActive, diffSync, computeDesired, desiredNamesFor } from '../core/sync.js';
+import { syncActive, diffSync, computeDesired, desiredContext } from '../core/sync.js';
 import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
@@ -135,7 +135,10 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     if (globalDir) over.globalDir = globalDir;
     if ('mode' in body && body.mode) over.mode = body.mode;
     if ('preset' in body) { if (body.preset) over.preset = body.preset; else delete over.preset; }
-    if ('manualOn' in body) { const list = Array.isArray(body.manualOn) ? body.manualOn : []; if (list.length) over.manualOn = list; else delete over.manualOn; }
+    const setList = (field: 'explicitOn' | 'explicitOff') => {
+      if (field in body) { const list = Array.isArray(body[field]) ? body[field] : []; if (list.length) over[field] = list; else delete over[field]; }
+    };
+    setList('explicitOn'); setList('explicitOff');
     cfg.data.agents[key] = over;
     cfg.save();
     // 管理模式相关变更：若该 agent 活跃则自动同步，否则等用户主动同步
@@ -144,28 +147,34 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
   });
   r.get('/agents/:key/skills', (req, res) => {
     const key = req.params.key;
-    const lib = library().skills;
-    const desired = new Map([...computeDesired(cfg, lib, key).values()].map((s) => [s.name, s]));
-    res.json({ skills: describeAgentSkills(key, cfg.data, desired), active: cfg.data.activeAgents.includes(key) });
+    const lib = library();
+    const ctx = desiredContext(cfg, lib.skills, key);
+    const rows = agentSkillRows(key, cfg.data, lib.skills, ctx);
+    // 可添加候选：资产库里尚未加入本 agent（不在显式开启，也不在期望集，也未物理存在）的技能
+    const present = new Set(rows.filter((x) => x.present).map((x) => x.name));
+    const inDesired = new Set(rows.filter((x) => x.wanted).map((x) => x.name));
+    const addable = lib.skills
+      .filter((s) => !inDesired.has(s.name) && !present.has(s.name) && !ctx.onNames.has(s.name))
+      .map((s) => ({ id: s.id, name: s.name, repo: s.source }));
+    res.json({ skills: rows, addable, active: cfg.data.activeAgents.includes(key) });
   });
   r.post('/agents/:key/sync', (req, res) => {
     const key = req.params.key;
     const r_ = syncActive(cfg, library().skills, [key]);
     res.json(r_[0] ?? { agent: key, created: [], removed: [], failed: [] });
   });
-  r.delete('/agents/:key/owned/:skillName', (req, res) => {
+  // 删除 agent 技能目录中的某个技能（自带 or 残留 managed）：必须是「非期望」才可删
+  r.delete('/agents/:key/skills/:skillName', (req, res) => {
     const key = req.params.key;
     const name = req.params.skillName;
     const def = findBuiltin(key);
     if (!def) return res.status(404).json({ error: 'unknown agent' });
     const dir = resolveGlobalDir(def, cfg.data.agents[key]?.globalDir);
     const target = path.join(dir, name);
-    let ls;
-    try { ls = fs.lstatSync(target); } catch { return res.status(404).json({ error: 'skill not found' }); }
-    if (ls.isSymbolicLink()) return res.status(400).json({ error: 'managed skill — use “同步” to clear, not delete' });
-    // 破坏性操作：二次校验确为真实 skill 目录，且不在该 agent 期望集合
-    const desired = desiredNamesFor(cfg, library().skills, key);
-    if (desired.has(name)) return res.status(400).json({ error: 'skill is managed by this hub, not owned' });
+    if (!fs.existsSync(target)) return res.status(404).json({ error: 'skill not found' });
+    const ctx = desiredContext(cfg, library().skills, key);
+    const wanted = [...ctx.desired.values()].some((s) => s.name === name);
+    if (wanted) return res.status(400).json({ error: '该技能正处于启用状态；请先关闭（移除期望）再删除' });
     fs.rmSync(target, { recursive: true, force: true });
     res.json({ ok: true, removed: name });
   });

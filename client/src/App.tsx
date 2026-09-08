@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, StateView, AgentView, AgentSkillView, AgentSkillsResp, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
+import { api, StateView, AgentView, AgentSkillView, AgentSkillsResp, AddableSkill, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
 import { HealthView } from './HealthView';
 
 type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
@@ -503,6 +503,7 @@ function QuickTag({ onAdd }: { onAdd: (t: string) => void }) {
 /* ================= Agents ================= */
 function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; presets: PresetView[]; onLoad: () => void; onMsg: (m: string) => void; onBack: () => void }) {
   const [skills, setSkills] = useState<AgentSkillView[] | null>(null);
+  const [addable, setAddable] = useState<AddableSkill[]>([]);
   const [active, setActive] = useState(a.active);
   const [mode, setMode] = useState<'preset' | 'manual'>(a.mode ?? 'manual');
   const [presetSel, setPresetSel] = useState(a.preset ?? '');
@@ -510,30 +511,58 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
   const [collTarget, setCollTarget] = useState('');
   const [view, setView] = useState<'list' | 'card'>('list');
   const [busy, setBusy] = useState(false);
+
   const load = async () => {
     const [r, rs] = await Promise.all([
       api<AgentSkillsResp>(`/agents/${encodeURIComponent(a.key)}/skills`),
       api<RepoView[]>('/repos'),
     ]);
-    setSkills(r.skills); setActive(r.active);
+    setSkills(r.skills); setAddable(r.addable); setActive(r.active);
     setRepos(rs); if (!collTarget && rs.length) setCollTarget(rs[0].id);
   };
   useEffect(() => { load(); }, [a.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const refetch = async () => { onLoad(); await load(); };
+  const putOver = (patch: Record<string, unknown>) => api(`/agents/${a.key}`, { method: 'PUT', body: JSON.stringify(patch) });
+  const idOf = (s: AgentSkillView) => s.skillId ?? s.name;
+
   const saveMode = async (m: 'preset' | 'manual', preset?: string) => {
     setBusy(true); setMode(m);
-    await api(`/agents/${a.key}`, { method: 'PUT', body: JSON.stringify({ mode: m, preset: m === 'preset' ? (preset ?? presetSel) : undefined }) });
+    await putOver({ mode: m, preset: m === 'preset' ? (preset ?? presetSel) : undefined });
     setPresetSel(m === 'preset' ? (preset ?? presetSel) : presetSel);
     setBusy(false); onLoad(); await load();
     onMsg(m === 'manual' ? `${a.name}：已切换为「手动挑选」` : `${a.name}：已${preset ?? presetSel ? `改为跟随套餐「${preset ?? presetSel}」` : '改为跟随全局已选套餐'}`);
   };
-  const toggleManual = async (name: string, on: boolean) => {
-    const cur = new Set(a.manualOn ?? []);
-    if (on) cur.add(name); else cur.delete(name);
+
+  // 开关技能 = 增删「期望」。套餐基准成员关闭→记入 explicitOff；其余→直接从 explicitOn 移除
+  const toggleSkill = async (s: AgentSkillView, on: boolean) => {
+    const id = idOf(s); const name = s.name;
     setBusy(true);
-    await api(`/agents/${a.key}`, { method: 'PUT', body: JSON.stringify({ manualOn: [...cur] }) });
+    if (!on) {
+      if (s.reason === 'preset' && s.disableVia === 'off') {
+        const off = new Set(a.explicitOff ?? []); off.add(id);
+        await putOver({ explicitOff: [...off] });
+      } else {
+        const onSet = new Set(a.explicitOn ?? []); onSet.delete(id); onSet.delete(name);
+        await putOver({ explicitOn: [...onSet] });
+      }
+    } else if (s.reason === 'preset' && s.offOverride) {
+      const off = new Set(a.explicitOff ?? []); off.delete(id); off.delete(name);
+      await putOver({ explicitOff: [...off] });
+    } else {
+      const onSet = new Set(a.explicitOn ?? []); onSet.add(id);
+      await putOver({ explicitOn: [...onSet] });
+    }
     setBusy(false); await refetch();
   };
+
+  const addFromLibrary = async (id: string) => {
+    setBusy(true);
+    const onSet = new Set(a.explicitOn ?? []); onSet.add(id);
+    await putOver({ explicitOn: [...onSet] });
+    setBusy(false);
+    onMsg('已加入期望（额外开启），点「立即生效」即可部署到技能目录'); await refetch();
+  };
+
   const doSync = async () => {
     setBusy(true);
     const r = await api<SyncResult>(`/agents/${a.key}/sync`, { method: 'POST', body: JSON.stringify({}) });
@@ -541,38 +570,47 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
     onMsg(`${a.name} 已生效：装上 ${r.created.length} · 移除 ${r.removed.length}${r.failed.length ? ` · 失败 ${r.failed.length}` : ''}`);
     await refetch();
   };
-  const delOwn = async (name: string) => {
-    if (!confirm(`删除这个 AI 工具自带的技能「${name}」？\n\n将删除目录 ${a.globalDir}/${name}\n该技能不归本程序管理，删除后无法撤销。`)) return;
-    await api(`/agents/${a.key}/owned/${encodeURIComponent(name)}`, { method: 'DELETE' });
-    onMsg(`已删除自带技能：${name}`); await refetch();
+
+  const delSkill = async (s: AgentSkillView) => {
+    const label = s.reason === 'own' ? 'AI 工具自带的技能' : '已不在计划内的技能（残留）';
+    if (!confirm(`删除${label}「${s.name}」？\n\n将删除目录 ${a.globalDir}/${s.name}\n删除后需重新安装才能恢复。`)) return;
+    await api(`/agents/${a.key}/skills/${encodeURIComponent(s.name)}`, { method: 'DELETE' });
+    onMsg(`已删除技能：${s.name}`); await refetch();
   };
+
   const collect = async (s: AgentSkillView) => {
-    if (!collTarget) { onMsg('请先在下方选择一个目标资产库，再点「收编」'); return; }
+    if (!collTarget) { onMsg('请先选择一个目标资产库，再点「收编」'); return; }
     setBusy(true);
     const r = await api<CollectResult>(`/repos/${encodeURIComponent(collTarget)}/collect`, { method: 'POST', body: JSON.stringify({ agentKey: a.key, names: [s.name] }) });
     setBusy(false);
-    onMsg(r.collected.length ? `已把「${s.name}」复制进资产库「${collTarget}」` : `「${s.name}」在资产库「${collTarget}」已存在，跳过复制`);
+    onMsg(r.collected.length ? `已把「${s.name}」复制进资产库「${collTarget}」` : `「${s.name}」在资产库「${collTarget}」已存在`);
     await refetch();
   };
   const mergeDup = async (s: AgentSkillView) => {
-    if (!collTarget) { onMsg('请先在下方选择一个目标资产库，再点「合并」'); return; }
-    // 先收编到资产库，再从 agent 目录移除自带副本，避免双重引用
+    if (!collTarget) { onMsg('请先选择一个目标资产库，再点「合并去重」'); return; }
+    setBusy(true);
     const r = await api<CollectResult>(`/repos/${encodeURIComponent(collTarget)}/collect`, { method: 'POST', body: JSON.stringify({ agentKey: a.key, names: [s.name] }) });
-    if (r.collected.includes(s.name)) {
-      await api(`/agents/${a.key}/owned/${encodeURIComponent(s.name)}`, { method: 'DELETE' });
-      onMsg(`已把「${s.name}」收编进资产库「${collTarget}」并移除 agent 内的自带副本`);
-    } else {
-      onMsg(`「${s.name}」在资产库「${collTarget}」已存在，可直接在下方删除 agent 内的自带副本`);
-    }
+    await api(`/agents/${a.key}/skills/${encodeURIComponent(s.name)}`, { method: 'DELETE' });
+    setBusy(false);
+    onMsg(r.collected.length ? `已把「${s.name}」收编进资产库「${collTarget}」并删除本工具内的自带副本` : `资产库「${collTarget}」已有同名技能，已删除本工具内的自带副本`);
     await refetch();
   };
+
   const setActiveBtn = async () => {
     const cur = await api<string[]>('/activeAgents');
     const next = cur.includes(a.key) ? cur.filter((x) => x !== a.key) : [...cur, a.key];
     await api(`/activeAgents`, { method: 'PUT', body: JSON.stringify(next) });
-    onMsg(next.includes(a.key) ? `${a.name} 已开启自动同步（此后改动套餐或手动挑选会自动生效）` : `${a.name} 已暂停自动同步（改动后需手动点「立即生效」才生效）`);
+    onMsg(next.includes(a.key) ? `${a.name} 已开启自动同步（改动套餐或手动挑选会自动生效）` : `${a.name} 已暂停自动同步（改动后需手动点「立即生效」才生效）`);
     await refetch();
   };
+
+  const counts = skills ? {
+    wanted: skills.filter((x) => x.wanted).length,
+    pend: skills.filter((x) => x.wanted && !x.present).length,
+    resid: skills.filter((x) => !x.wanted && x.present && x.source === 'managed').length,
+    own: skills.filter((x) => x.reason === 'own').length,
+  } : null;
+
   return (
     <div className="panel">
       <div className="panel__head">
@@ -594,87 +632,104 @@ function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; pres
         </div>
         {mode === 'preset' && (
           <div className="formline" style={{ marginTop: 8 }}>
-            <select className="field" value={presetSel} onChange={(e) => saveMode('preset', e.target.value)} disabled={busy}
-              title="跟随的套餐；留空则跟随所有已选中的套餐">
+            <select className="field" value={presetSel} onChange={(e) => saveMode('preset', e.target.value)} disabled={busy} title="跟随的套餐；留空则跟随所有已选中的套餐">
               <option value="">跟随全局已选中的技能套餐</option>
               {presets.map((p) => <option key={p.name} value={p.name}>{p.name}{p.active ? '（已开启）' : ''}</option>)}
             </select>
-            <span className="panel__hint">技能来自这个套餐，这里不能单独开关。</span>
+            <span className="panel__hint">套餐成员的技能会自动装上；你仍可在下方对个别技能单独开/关。</span>
           </div>
         )}
         {mode === 'manual' && (
-          <div className="panel__hint" style={{ marginTop: 8 }}>手动挑选：勾选下方技能 = 装到技能目录，取消 = 移走。跟任何套餐无关。</div>
+          <div className="panel__hint" style={{ marginTop: 8 }}>手动挑选：下方勾选 = 装到技能目录，取消 = 移走。跟任何套餐无关。</div>
         )}
       </div>
 
       <div className="dict-block">
-        <div className="dict-label">实际能用的技能（{skills?.length ?? 0}）</div>
-        <div className="seg" role="group" aria-label="展示样式">
-          <button className={`seg__opt${view === 'list' ? ' is-on' : ''}`} onClick={() => setView('list')}>☰ 列表</button>
-          <button className={`seg__opt${view === 'card' ? ' is-on' : ''}`} onClick={() => setView('card')}>▦ 卡片</button>
+        <div className="dict-label">技能清单
+          {counts && <span className="row__note">  · 期望 {counts.wanted} / 待部署 {counts.pend} / 残留 {counts.resid} / 自带 {counts.own}</span>}
+        </div>
+        <div className="formline" style={{ flexWrap: 'wrap' }}>
+          <div className="seg" role="group" aria-label="展示样式">
+            <button className={`seg__opt${view === 'list' ? ' is-on' : ''}`} onClick={() => setView('list')}>☰ 列表</button>
+            <button className={`seg__opt${view === 'card' ? ' is-on' : ''}`} onClick={() => setView('card')}>▦ 卡片</button>
+          </div>
+          <select className="field" style={{ width: 200 }} value="" disabled={busy} onChange={(e) => { if (e.target.value) addFromLibrary(e.target.value); }} title="从资产库额外开启一个还没装的技能">
+            <option value="">＋ 从资产库添加…</option>
+            {addable.map((x) => <option key={x.id} value={x.id}>{x.name}（{x.repo}）</option>)}
+          </select>
         </div>
         <div className="formline" style={{ marginTop: 6, flexWrap: 'wrap' }}>
-          <span className="panel__hint" style={{ margin: 0 }}>自带技能可「收编到资产库 / 合并去重」，目标资产库：</span>
-          <select className="field" style={{ width: 220 }} value={collTarget} onChange={(e) => setCollTarget(e.target.value)}>
-            {repos.length === 0 && <option value="">（还没有资产库，请先到「资产库」新建）</option>}
-            {repos.map((rp) => <option key={rp.id} value={rp.id}>{rp.id}</option>)}
-          </select>
-          <span className="panel__hint">合并去重 = 复制进资产库并移除 agent 内的自带副本。</span>
+          {repos.length === 0
+            ? <span className="panel__hint" style={{ margin: 0 }}>还没有资产库；自带技能的「收编 / 合并去重」需先到「资产库」新建。</span>
+            : <>
+              <span className="panel__hint" style={{ margin: 0 }}>自带技能可「收编到资产库」或「合并去重」，目标资产库：</span>
+              <select className="field" style={{ width: 200 }} value={collTarget} onChange={(e) => setCollTarget(e.target.value)}>
+                {repos.map((rp) => <option key={rp.id} value={rp.id}>{rp.id}</option>)}
+              </select>
+            </>}
         </div>
         {skills == null ? <span className="panel__hint">加载中…</span> : skills.length === 0 ? (
-          <span className="panel__hint">这个 AI 工具的技能目录是空的：还没有任何技能。</span>
+          <span className="panel__hint">这个 AI 工具的技能目录是空的，还没有任何技能。可从上方「从资产库添加」开始。</span>
+        ) : view === 'list' ? (
+          <div className="checklist" style={{ gridTemplateColumns: '1fr', maxHeight: 360 }}>
+            {skills.map((s) => <AgentSkillRow key={s.name} s={s} busy={busy} onToggle={(on) => toggleSkill(s, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delSkill(s)} />)}
+          </div>
         ) : (
-          view === 'list' ? (
-            <div className="checklist" style={{ gridTemplateColumns: '1fr', maxHeight: 340 }}>
-              {skills.map((s) => <AgentSkillRow key={s.name} s={s} mode={mode} presetSel={presetSel} busy={busy} onToggle={(on) => toggleManual(s.name, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delOwn(s.name)} />)}
-            </div>
-          ) : (
-            <div className="grid-card" style={{ maxHeight: 420, overflow: 'auto' }}>
-              {skills.map((s) => <div className="card" key={s.name}><div className="card__inner"><AgentSkillRow s={s} mode={mode} presetSel={presetSel} busy={busy} onToggle={(on) => toggleManual(s.name, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delOwn(s.name)} /></div></div>)}
-            </div>
-          )
+          <div className="grid-card" style={{ maxHeight: 420, overflow: 'auto' }}>
+            {skills.map((s) => <div className="card" key={s.name}><div className="card__inner"><AgentSkillRow s={s} busy={busy} onToggle={(on) => toggleSkill(s, on)} onCollect={() => collect(s)} onMerge={() => mergeDup(s)} onDel={() => delSkill(s)} /></div></div>)}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-/* 单个 agent 技能行：标注来源/存储方式，并根据管理模式提供 收编 / 合并 / 删除 / 开关 */
-function AgentSkillRow({ s, mode, presetSel, busy, onToggle, onCollect, onMerge, onDel }: {
-  s: AgentSkillView; mode: 'preset' | 'manual'; presetSel: string; busy: boolean;
+/* 单个 agent 技能行：状态 = 期望 × 存在，来源/存储各自标注，
+   操作只由「状态 + 来源」决定，不再两两交叉判断 */
+function AgentSkillRow({ s, busy, onToggle, onCollect, onMerge, onDel }: {
+  s: AgentSkillView; busy: boolean;
   onToggle: (on: boolean) => void; onCollect: () => void; onMerge: () => void; onDel: () => void;
 }) {
-  const srcBadge = s.source === 'owned'
-    ? <span className="badge badge--off">AI 工具自带</span>
-    : s.repo
-      ? <span className="badge badge--family">来自资产库·{s.repo}</span>
-      : <span className="badge badge--state">本程序安装</span>;
-  const storeBadge = s.source === 'owned'
-    ? <span className="badge badge--off" title="技能本体就是一个真实目录，直接存在该工具的技能目录里">本体目录</span>
-    : s.link
-      ? <span className="badge badge--shared" title="这里只是指向资产库技能的一个软链，不占空间，资产库更新即生效">软链</span>
-      : <span className="badge badge--off" title="把资产库技能复制了一份到该工具目录，独立一份">复制到目录</span>;
-  const status = s.active ? <span className="badge badge--state">已启用</span> : <span className="badge badge--off">未启用</span>;
+  const reasonBadge =
+    s.reason === 'own' ? <span className="badge badge--off">自带</span>
+    : s.reason === 'preset'
+      ? (s.offOverride ? <span className="badge badge--off">套餐·已停用</span> : <span className="badge badge--family">来自套餐{s.preset ? `「${s.preset}」` : ''}</span>)
+      : <span className="badge badge--state">手动开启</span>;
+  const storeBadge =
+    s.store === 'pending' ? <span className="badge badge--off">待部署</span>
+    : s.store === 'symlink' ? <span className="badge badge--shared" title="指向资产库技能的一个软链，不占空间，资产库更新即生效">软链</span>
+    : s.store === 'copy' ? <span className="badge badge--off" title="把资产库技能复制了一份到该工具目录">复制到目录</span>
+    : <span className="badge badge--off" title="技能本体就是该工具技能目录里的真实目录">本体目录</span>;
+  const stateBadge =
+    s.wanted && s.present ? <span className="badge badge--state">已启用</span>
+    : s.wanted ? <span className="badge badge--warn">待部署</span>
+    : s.offOverride ? <span className="badge badge--off">已停用</span>
+    : s.source === 'owned' ? <span className="badge badge--state">在用</span>
+    : <span className="badge badge--off">残留</span>;
   return (
     <div className="agent-skill">
       <span className="agent-skill-name" title={s.dir}>{s.name}</span>
-      <span className="row__note" style={{ flex: 1 }}>{s.source === 'owned' ? '不随本程序管理' : ''}</span>
       <div className="skill-tags" style={{ border: 0, paddingTop: 0, justifySelf: 'end' }}>
-        {srcBadge}{storeBadge}{status}
+        {reasonBadge}{storeBadge}{stateBadge}
       </div>
       <div className="row__actions">
-        {s.source === 'owned' ? (
+        {s.reason === 'own' ? (
           <>
-            <button className="btn btn--ghost btn--sm" onClick={onCollect} disabled={busy} title="把这份技能复制进资产库">收编到资产库</button>
-            <button className="btn btn--ghost btn--sm" onClick={onMerge} disabled={busy} title="复制进资产库并从 agent 移除自带副本">合并去重</button>
+            <button className="btn btn--ghost btn--sm" onClick={onCollect} disabled={busy} title="把这份技能复制进资产库">收编</button>
+            <button className="btn btn--ghost btn--sm" onClick={onMerge} disabled={busy} title="复制进资产库并删除本目录副本，避免重复">合并去重</button>
             <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
           </>
-        ) : mode === 'manual' ? (
-          <label className="sw" title={s.active ? '关闭：从技能目录移除' : '开启：装到技能目录'}>
-            <input type="checkbox" checked={s.active} disabled={busy} onChange={(e) => onToggle(e.target.checked)} />
+        ) : s.wanted ? (
+          <label className="sw" title={s.present ? '关闭：从技能目录移除（移出期望）' : '取消：不再需要，移除期望'}>
+            <input type="checkbox" checked disabled={busy} onChange={() => onToggle(false)} />
           </label>
+        ) : s.offOverride ? (
+          <>
+            <button className="btn btn--ghost btn--sm" onClick={() => onToggle(true)} title="重新启用（移出停用列表）">重新启用</button>
+            <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy}>删除</button>
+          </>
         ) : (
-          <span className="row__note">{s.active ? `来自套餐${presetSel ? `「${presetSel}」` : ''}` : '未启用'}</span>
+          <button className="btn btn--ghost btn--sm" onClick={onDel} disabled={busy} title="清理残留目录">清理</button>
         )}
       </div>
     </div>

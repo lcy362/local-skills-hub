@@ -12,9 +12,10 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface SkillView { id: string; name: string; source: string; dir: string; description?: string; version?: string; tags: string[] }
 export interface PresetView { name: string; skills: string[]; tags: string[]; active?: boolean }
-export interface AgentView { key: string; name: string; globalDir: string; installed: boolean; sync: string; active: boolean; family?: string; shared?: string; layers?: string[]; sharedWith: string[]; alsoUsedBy?: string[]; mode?: 'preset' | 'manual'; preset?: string; manualOn?: string[] }
-export interface AgentSkillView { name: string; source: 'managed' | 'owned'; active: boolean; dir: string; link?: boolean; skillId?: string; repo?: string }
-export interface AgentSkillsResp { skills: AgentSkillView[]; active: boolean }
+export interface AgentView { key: string; name: string; globalDir: string; installed: boolean; sync: string; active: boolean; family?: string; shared?: string; layers?: string[]; sharedWith: string[]; alsoUsedBy?: string[]; mode?: 'preset' | 'manual'; preset?: string; explicitOn?: string[]; explicitOff?: string[] }
+export interface AgentSkillView { skillId?: string; name: string; source: 'managed' | 'owned'; wanted: boolean; present: boolean; store: 'symlink' | 'copy' | 'own' | 'pending'; reason: 'preset' | 'manual' | 'own'; offOverride?: boolean; preset?: string; repo?: string; dir?: string; link?: boolean; disableVia?: 'off' | 'on' }
+export interface AddableSkill { id: string; name: string; repo: string }
+export interface AgentSkillsResp { skills: AgentSkillView[]; addable: AddableSkill[]; active: boolean }
 export interface SyncResult { agent: string; created: string[]; removed: string[]; failed: { skill: string; reason: string }[] }
 export interface StateView { activeAgents: string[]; skills: SkillView[]; presets: PresetView[] }
 export interface RepoView { id: string; path: string; layout: string; root?: string; tags?: { mode: 'auto' | 'frontmatter' | 'repo-file' | 'external-file'; file?: string } }
