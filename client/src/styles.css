@@ -329,6 +329,68 @@ textarea.field, .field--area { resize: vertical; line-height: 1.5; }
   .filterbar { padding: var(--space-2) var(--space-3); }
 }
 
+/* ---------- Agent directory (card grid + detail subview) ----------
+ * Hallmark · component: agent-directory · genre: modern-minimal · theme: Cobalt(light)
+ * states: card default · hover · busy(disabled) · switch on/off · idle hint
+ */
+.agent-card {
+  cursor: pointer; text-align: left;
+  align-items: flex-start; justify-content: flex-start;
+}
+.agent-card:active { transform: translateY(0); }
+
+/* detail subview blocks */
+.dict-block {
+  background: var(--color-paper-1);
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-5);
+  margin-top: var(--space-3);
+}
+.dict-block:first-of-type { margin-top: 0; }
+.dict-label {
+  font-size: var(--text-2xs); font-weight: 600; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--color-ink-soft);
+  margin-bottom: var(--space-2);
+}
+.seg-hint {
+  font-family: var(--font-mono); font-size: var(--text-2xs);
+  color: var(--color-ink-soft); margin-left: var(--space-2);
+}
+.seg-hint.is-idle { color: var(--color-warn); }
+
+/* skill rows inside the detail subview */
+.agent-skill {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-paper-2); border: 1px solid var(--color-line-soft);
+}
+.agent-skill + .agent-skill { margin-top: var(--space-1); }
+.agent-skill:hover { border-color: var(--color-line); }
+.agent-skill-name {
+  font-weight: 600; font-size: var(--text-xs);
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* switch — compact toggle for "自行管理" enable/disable */
+.sw { position: relative; display: inline-block; width: 34px; height: 20px; flex-shrink: 0; }
+.sw input { opacity: 0; width: 0; height: 0; }
+.sw::before {
+  content: ""; position: absolute; inset: 0; border-radius: var(--radius-pill);
+  background: var(--color-paper-3); border: 1px solid var(--color-line);
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.sw::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--color-ink-soft);
+  transition: transform var(--dur-base) var(--ease-out), background var(--dur-base);
+}
+.sw:has(input:checked)::before { background: var(--color-accent); border-color: var(--color-accent); }
+.sw:has(input:checked)::after { background: var(--color-on-accent); transform: translateX(14px); }
+.sw:has(input:disabled) { opacity: 0.5; }
+.sw:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: var(--radius-pill); }
+
 /* ---------- Empty / msg ---------- */
 .empty { font-size: var(--text-xs); color: var(--color-ink-soft); padding: var(--space-4); text-align: center; }
 .msgbar {

@@ -30,10 +30,18 @@ export interface ForeignSource {
   linked: boolean;
 }
 
+export type AgentManageMode = 'preset' | 'manual';
+
 export interface AgentOverride {
   globalDir?: string;
   projectDir?: string;
   sync?: SyncMode;
+  /** 技能管理模式；缺省 = 'preset'（兼容现状） */
+  mode?: AgentManageMode;
+  /** mode=preset 时关联的 preset 名；缺省则沿用全局激活 presets */
+  preset?: string;
+  /** mode=manual 时手动开启的 skill id（name@来源） */
+  manualOn?: string[];
 }
 
 export interface Preset {

@@ -11,17 +11,42 @@ export interface SyncResult {
   failed: { skill: string; reason: string }[];
 }
 
-/** 计算某 agent 应生效的 skill 集合（P0：所有激活 preset 的成员） */
-export function computeDesired(cfg: ConfigStore, allSkills: Skill[]): Map<string, Skill> {
+/**
+ * 计算某 agent 应生效的 skill 集合。
+ * - mode=manual：手动开启的 manualOn 成员
+ * - mode=preset 且指定 preset：该 preset 成员
+ * - 其余（缺省/未指定）：所有「激活 preset」的并集（历史行为）
+ * agentKey 为空时等价于历史 computeDesired（全局激活 presets）。
+ */
+export function computeDesired(cfg: ConfigStore, allSkills: Skill[], agentKey?: string): Map<string, Skill> {
   const desired = new Map<string, Skill>();
+  const add = (id: string) => {
+    const sk = allSkills.find((s) => s.id === id);
+    if (sk) desired.set(id, sk);
+  };
+  const ov = agentKey ? cfg.data.agents[agentKey] : undefined;
+  if (ov?.mode === 'manual') {
+    // manualOn 支持按 skill id(name@来源) 或按名字（目录名）匹配，二者皆可
+    for (const id of ov.manualOn ?? []) {
+      const sk = allSkills.find((s) => s.id === id) ?? allSkills.find((s) => s.name === id);
+      if (sk) desired.set(sk.id, sk);
+    }
+    return desired;
+  }
+  if (ov?.preset) {
+    const p = cfg.data.presets.find((x) => x.name === ov.preset);
+    if (p) { for (const id of p.skills) add(id); return desired; }
+  }
   for (const p of cfg.data.presets) {
     if (!p.active) continue;
-    for (const id of p.skills) {
-      const sk = allSkills.find((s) => s.id === id);
-      if (sk) desired.set(id, sk);
-    }
+    for (const id of p.skills) add(id);
   }
   return desired;
+}
+
+/** 某 agent 期望部署的 skill 名字集合（供来源标注/清理判断） */
+export function desiredNamesFor(cfg: ConfigStore, allSkills: Skill[], agentKey: string): Set<string> {
+  return new Set([...computeDesired(cfg, allSkills, agentKey).values()].map((s) => s.name));
 }
 
 export function symlinkSkill(linkPath: string, targetDir: string): void {
@@ -88,11 +113,10 @@ export function deployAgent(cfg: ConfigStore, agentKey: string, desired: Map<str
   return result;
 }
 
-/** 触发式同步：将活跃 agent 全部同步到“激活 preset”的 skill 集合 */
+/** 触发式同步：将指定（默认活跃）agent 各按自身管理模式同步到期望 skill 集合 */
 export function syncActive(cfg: ConfigStore, allSkills: Skill[], only?: string[]): SyncResult[] {
   const targets = only ?? cfg.data.activeAgents;
-  const desired = computeDesired(cfg, allSkills);
-  return targets.map((k) => deployAgent(cfg, k, desired, allSkills));
+  return targets.map((k) => deployAgent(cfg, k, computeDesired(cfg, allSkills, k), allSkills));
 }
 
 export interface SyncDiff {
@@ -111,13 +135,12 @@ export interface SyncDiff {
  * 绝不写盘，仅供诊断。extra 口径与 deployAgent 一致：仅软链分歧项可被一键同步清除，真实目录仅提示。
  */
 export function diffSync(cfg: ConfigStore, allSkills: Skill[]): SyncDiff[] {
-  const desired = computeDesired(cfg, allSkills);
   const out: SyncDiff[] = [];
   for (const key of cfg.data.activeAgents) {
     const def = findBuiltin(key);
     if (!def) continue;
     const dir = resolveGlobalDir(def, cfg.data.agents[key]?.globalDir);
-    const desiredNames = [...new Set([...desired.values()].map((s) => s.name))];
+    const desiredNames = [...desiredNamesFor(cfg, allSkills, key)];
     const actual = new Set<string>();
     const brokenLink: string[] = [];
     if (fs.existsSync(dir)) {

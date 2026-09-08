@@ -3,11 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { ConfigStore } from '../config/store.js';
-import { listAgents } from '../core/agents.js';
+import { listAgents, describeAgentSkills, findBuiltin, resolveGlobalDir } from '../core/agents.js';
 import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
-import { syncActive, diffSync, computeDesired } from '../core/sync.js';
+import { syncActive, diffSync, computeDesired, desiredNamesFor } from '../core/sync.js';
 import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
 import { addProject, syncProject } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
@@ -129,12 +129,44 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
   r.put('/agents/:key', (req, res) => {
     const key = req.params.key;
     const over = cfg.data.agents[key] ?? {};
-    const { sync, globalDir } = req.body ?? {};
+    const body = req.body ?? {};
+    const { sync, globalDir } = body;
     if (sync) over.sync = sync;
     if (globalDir) over.globalDir = globalDir;
+    if ('mode' in body && body.mode) over.mode = body.mode;
+    if ('preset' in body) { if (body.preset) over.preset = body.preset; else delete over.preset; }
+    if ('manualOn' in body) { const list = Array.isArray(body.manualOn) ? body.manualOn : []; if (list.length) over.manualOn = list; else delete over.manualOn; }
     cfg.data.agents[key] = over;
     cfg.save();
+    // 管理模式相关变更：若该 agent 活跃则自动同步，否则等用户主动同步
+    if (cfg.data.activeAgents.includes(key)) touch();
     res.json(cfg.data.agents[key]);
+  });
+  r.get('/agents/:key/skills', (req, res) => {
+    const key = req.params.key;
+    const desired = desiredNamesFor(cfg, library().skills, key);
+    res.json({ skills: describeAgentSkills(key, cfg.data, desired), active: cfg.data.activeAgents.includes(key) });
+  });
+  r.post('/agents/:key/sync', (req, res) => {
+    const key = req.params.key;
+    const r_ = syncActive(cfg, library().skills, [key]);
+    res.json(r_[0] ?? { agent: key, created: [], removed: [], failed: [] });
+  });
+  r.delete('/agents/:key/owned/:skillName', (req, res) => {
+    const key = req.params.key;
+    const name = req.params.skillName;
+    const def = findBuiltin(key);
+    if (!def) return res.status(404).json({ error: 'unknown agent' });
+    const dir = resolveGlobalDir(def, cfg.data.agents[key]?.globalDir);
+    const target = path.join(dir, name);
+    let ls;
+    try { ls = fs.lstatSync(target); } catch { return res.status(404).json({ error: 'skill not found' }); }
+    if (ls.isSymbolicLink()) return res.status(400).json({ error: 'managed skill — use “同步” to clear, not delete' });
+    // 破坏性操作：二次校验确为真实 skill 目录，且不在该 agent 期望集合
+    const desired = desiredNamesFor(cfg, library().skills, key);
+    if (desired.has(name)) return res.status(400).json({ error: 'skill is managed by this hub, not owned' });
+    fs.rmSync(target, { recursive: true, force: true });
+    res.json({ ok: true, removed: name });
   });
   r.get('/activeAgents', (_req, res) => res.json(cfg.data.activeAgents));
   r.put('/activeAgents', (req, res) => {

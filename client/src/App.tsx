@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { api, StateView, AgentView, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
+import { api, StateView, AgentView, AgentSkillView, AgentSkillsResp, PresetView, SkillView, SyncResult, RepoView, SourceView, ProjectView, ProjectSyncResult, ImportResult, ImportPreviewItem, AgentCollectPreview, CollectResult } from './api';
 import { HealthView } from './HealthView';
 
 type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
 
 const NAV: { id: Tab; label: string; note: string }[] = [
   { id: 'library', label: '资产库', note: '全部 skill，可筛选、打标签' },
-  { id: 'agents', label: 'Agent 目录', note: '把 skill 投给各 AI 编程工具' },
-  { id: 'presets', label: '技能预设', note: 'skill 套餐，解放活的 agent' },
+  { id: 'agents', label: 'AI 工具', note: '把技能装到各 AI 编程工具' },
+  { id: 'presets', label: '技能套餐', note: '把一组技能打包，批量装给各 AI 工具' },
   { id: 'projects', label: '项目', note: '某代码项目专属可用的 skill' },
   { id: 'health', label: '体检中心', note: '检查配置与目录是否健康一致' },
 ];
@@ -27,10 +27,10 @@ export default function App() {
   useEffect(() => { reload(); }, []);
 
   const runSync = async () => {
-    setMsg('同步中…');
+    setMsg('正在生效…');
     try {
       const res = await api<SyncResult[]>('/sync', { method: 'POST', body: JSON.stringify({}) });
-      setMsg(res.map((x) => `${x.agent} +${x.created.length} −${x.removed.length} ✕${x.failed.length}`).join('  ·  ') || '无活跃 agent');
+      setMsg(res.map((x) => `${x.agent} 装上 ${x.created.length} · 移除 ${x.removed.length}${x.failed.length ? ` · 失败 ${x.failed.length}` : ''}`).join('  ·  ') || '没有已开启自动同步的 AI 工具');
     } catch (e) { setMsg((e as Error).message); }
     reload();
   };
@@ -64,17 +64,17 @@ export default function App() {
           </div>
           <div className="topbar__actions">
             <button className="btn" onClick={reload} title="重读配置与目录，只刷新页面数据，不改动任何文件">刷新</button>
-            <button className="btn btn--primary" onClick={runSync} title="把资产库的 skill 立即投放到各活跃 Agent 的目录，让改动立刻生效">立即同步</button>
+            <button className="btn btn--primary" onClick={runSync} title="把技能库选中的技能，立即装到已开启自动同步的 AI 工具，让改动立刻生效">立即生效</button>
           </div>
         </header>
         <div className="topbar__tips">
-          <span><b>刷新</b>：重读配置与目录，只刷新页面数据，不改动任何文件。</span>
-          <span><b>立即同步</b>：把资产库启用的 skill 马上投放到各活跃 Agent 的目录，让改动立刻生效。</span>
+          <span><b>刷新</b>：重新读取配置与目录清单，只更新页面数据，不改动任何文件。</span>
+          <span><b>立即生效</b>：把技能库选中的技能马上装到已开启自动同步的 AI 工具，让改动立刻生效。</span>
         </div>
         <div className="content">
           {msg && <div className="msgbar">{msg}</div>}
           {tab === 'library' && <Library state={state} onLoad={reload} onMsg={setMsg} />}
-          {tab === 'agents' && <AgentsView agents={agents} onLoad={reload} />}
+          {tab === 'agents' && <AgentsView agents={agents} state={state} onLoad={reload} onMsg={setMsg} />}
           {tab === 'presets' && <PresetsView state={state} onLoad={reload} />}
           {tab === 'projects' && <ProjectsView onMsg={setMsg} />}
           {tab === 'health' && <HealthView onMsg={setMsg} refreshGlobal={reload} />}
@@ -101,8 +101,8 @@ async function pickFile(set: (v: string) => void) {
 function tabDesc(t: Tab, s: StateView | null, a: AgentView[]): string {
   switch (t) {
     case 'library': return `${s?.skills.length ?? 0} 个 skill · ${new Set(s?.skills.map((x) => x.source)).size ?? 0} 个来源`;
-    case 'agents': return `${a.length} 内建 agent · ${a.filter((x) => x.installed).length} 已检测`;
-    case 'presets': return `${s?.presets.length ?? 0} 个预设 · ${s?.presets.filter((p) => p.active).length ?? 0} 激活`;
+    case 'agents': return `共支持 ${a.length} 个 AI 工具 · ${a.filter((x) => x.installed).length} 个已找到技能目录`;
+    case 'presets': return `${s?.presets.length ?? 0} 个套餐 · ${s?.presets.filter((p) => p.active).length ?? 0} 个已开启`;
     case 'health': return '综合体检：Agent / 同步 / 重复 Skill / 失效软链 / 仓库 / 项目 / 标签来源';
     default: return '';
   }
@@ -501,52 +501,155 @@ function QuickTag({ onAdd }: { onAdd: (t: string) => void }) {
 }
 
 /* ================= Agents ================= */
-function AgentsView({ agents, onLoad }: { agents: AgentView[]; onLoad: () => void }) {
-  const [only, setOnly] = useState<'all' | 'detected'>('all');
-  const shown = only === 'all' ? agents : agents.filter((a) => a.installed);
-  const setActive = async (key: string) => {
-    const cur = await api<string[]>('/activeAgents');
-    const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
-    await api(`/activeAgents`, { method: 'PUT', body: JSON.stringify(next) }); onLoad();
+function AgentDetail({ a, presets, onLoad, onMsg, onBack }: { a: AgentView; presets: PresetView[]; onLoad: () => void; onMsg: (m: string) => void; onBack: () => void }) {
+  const [skills, setSkills] = useState<AgentSkillView[] | null>(null);
+  const [active, setActive] = useState(a.active);
+  const [mode, setMode] = useState<'preset' | 'manual'>(a.mode ?? 'preset');
+  const [presetSel, setPresetSel] = useState(a.preset ?? '');
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const r = await api<AgentSkillsResp>(`/agents/${encodeURIComponent(a.key)}/skills`);
+    setSkills(r.skills); setActive(r.active);
   };
-  const toggleMode = async (key: string, sync: string) => {
-    await api(`/agents/${key}`, { method: 'PUT', body: JSON.stringify({ sync: sync === 'symlink' ? 'copy' : 'symlink' }) }); onLoad();
+  useEffect(() => { load(); }, [a.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const refetch = async () => { onLoad(); await load(); };
+  const saveMode = async (m: 'preset' | 'manual', preset?: string) => {
+    setBusy(true); setMode(m);
+    await api(`/agents/${a.key}`, { method: 'PUT', body: JSON.stringify({ mode: m, preset: m === 'preset' ? (preset ?? presetSel) : undefined }) });
+    setPresetSel(m === 'preset' ? (preset ?? presetSel) : presetSel);
+    setBusy(false); onLoad(); await load();
+    onMsg(m === 'manual' ? `${a.name}：已切换为「手动挑选」` : `${a.name}：已${preset ?? presetSel ? `改为跟随套餐「${preset ?? presetSel}」` : '改为跟随全局已选套餐'}`);
+  };
+  const toggleManual = async (name: string, on: boolean) => {
+    const cur = new Set(a.manualOn ?? []);
+    if (on) cur.add(name); else cur.delete(name);
+    setBusy(true);
+    await api(`/agents/${a.key}`, { method: 'PUT', body: JSON.stringify({ manualOn: [...cur] }) });
+    setBusy(false); await refetch();
+  };
+  const doSync = async () => {
+    setBusy(true);
+    const r = await api<SyncResult>(`/agents/${a.key}/sync`, { method: 'POST', body: JSON.stringify({}) });
+    setBusy(false);
+    onMsg(`${a.name} 已生效：装上 ${r.created.length} · 移除 ${r.removed.length}${r.failed.length ? ` · 失败 ${r.failed.length}` : ''}`);
+    await refetch();
+  };
+  const delOwn = async (name: string) => {
+    if (!confirm(`删除这个 AI 工具自带的技能「${name}」？\n\n将删除目录 ${a.globalDir}/${name}\n该技能不归本程序管理，删除后无法撤销。`)) return;
+    await api(`/agents/${a.key}/owned/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    onMsg(`已删除自有 skill：${name}`); await refetch();
+  };
+  const setActiveBtn = async () => {
+    const cur = await api<string[]>('/activeAgents');
+    const next = cur.includes(a.key) ? cur.filter((x) => x !== a.key) : [...cur, a.key];
+    await api(`/activeAgents`, { method: 'PUT', body: JSON.stringify(next) });
+    onMsg(next.includes(a.key) ? `${a.name} 已开启自动同步（此后改动套餐或手动挑选会自动生效）` : `${a.name} 已暂停自动同步（改动后需手动点「立即生效」才生效）`);
+    await refetch();
   };
   return (
     <div className="panel">
       <div className="panel__head">
-        <h2 className="panel__title">Agent 目录</h2>
-        <span className="panel__hint">你在资产库激活的 skill 会被投放/软链到这些 AI 编程工具自己的 skill 目录。活跃 {agents.filter((a) => a.active).length} · 已检测 {agents.filter((a) => a.installed).length} / 内建 {agents.length}</span>
+        <button className="btn btn--ghost btn--sm" onClick={onBack}>← 返回</button>
+        <h2 className="panel__title">{a.name}</h2>
+        <span className="panel__hint" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.globalDir} · {active ? '自动同步中' : '未自动同步'} · 安装方式：{a.sync === 'symlink' ? '链接' : '复制'}</span>
         <div className="panel__actions">
-          <button className={`btn btn--sm${only === 'all' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('all')}>全部</button>
-          <button className={`btn btn--sm${only === 'detected' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('detected')}>已检测 {agents.filter((a) => a.installed).length}</button>
+          <button className={`btn btn--sm ${active ? 'btn--ghost' : 'btn--primary'}`} onClick={setActiveBtn}>{active ? '暂停自动同步' : '开启自动同步'}</button>
+          <button className="btn btn--sm" onClick={doSync} disabled={busy}>立即生效</button>
         </div>
       </div>
-      {shown.map((a) => (
-        <div className={`row${a.active ? ' is-active' : ''}`} key={a.key}>
-          <div className="row__main">
+
+      <div className="dict-block">
+        <div className="dict-label">技能怎么来</div>
+        <div className="seg">
+          <button className={`btn btn--sm${mode === 'preset' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => saveMode('preset')} disabled={busy}>跟随技能套餐</button>
+          <button className={`btn btn--sm${mode === 'manual' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => saveMode('manual')} disabled={busy}>手动挑选</button>
+          <span className={`seg-hint${active ? '' : ' is-idle'}`}>{active ? '已开启自动同步：改动立即生效' : '未开启自动同步：改动后需点「立即生效」才生效'}</span>
+        </div>
+        {mode === 'preset' && (
+          <div className="formline" style={{ marginTop: 8 }}>
+            <select className="field" value={presetSel} onChange={(e) => saveMode('preset', e.target.value)} disabled={busy}
+              title="跟随的套餐；留空则跟随所有已选中的套餐">
+              <option value="">跟随全局已选中的技能套餐</option>
+              {presets.map((p) => <option key={p.name} value={p.name}>{p.name}{p.active ? '（已开启）' : ''}</option>)}
+            </select>
+            <span className="panel__hint">技能来自这个套餐，这里不能单独开关。</span>
+          </div>
+        )}
+        {mode === 'manual' && (
+          <div className="panel__hint" style={{ marginTop: 8 }}>手动挑选：勾选下方技能 = 装到技能目录，取消 = 移走。跟任何套餐无关。</div>
+        )}
+      </div>
+
+      <div className="dict-block">
+        <div className="dict-label">实际能用的技能（{skills?.length ?? 0}）</div>
+        {skills == null ? <span className="panel__hint">加载中…</span> : skills.length === 0 ? (
+          <span className="panel__hint">这个 AI 工具的技能目录是空的：还没有任何技能。</span>
+        ) : (
+          <div className="checklist" style={{ gridTemplateColumns: '1fr', maxHeight: 320 }}>
+            {skills.map((s) => (
+              <div className="agent-skill" key={s.name}>
+                <span className={`badge ${s.source === 'owned' ? 'badge--off' : 'badge--state'}`}>{s.source === 'owned' ? 'AI 工具自带' : '本程序安装'}</span>
+                <span className="agent-skill-name" title={s.dir}>{s.name}</span>
+                {s.source === 'owned' ? (
+                  <>
+                    <span className="row__note" style={{ flex: 1 }}>{active ? '—' : '不随本程序管理'}</span>
+                    <button className="btn btn--ghost btn--sm" onClick={() => delOwn(s.name)}>删除</button>
+                  </>
+                ) : mode === 'manual' ? (
+                  <>
+                    <span className="row__note" style={{ flex: 1 }}>手动挑选</span>
+                    <label className="sw" title={s.active ? '关闭：从技能目录移除' : '开启：装到技能目录'}>
+                      <input type="checkbox" checked={s.active} disabled={busy} onChange={(e) => toggleManual(s.name, e.target.checked)} />
+                    </label>
+                  </>
+                ) : (
+                  <span className="row__note" style={{ flex: 1 }}>{s.active ? `已安装${presetSel ? `（来自套餐「${presetSel}」）` : '（来自全局已选套餐）'}` : '未安装'}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AgentsView({ agents, state, onLoad, onMsg }: { agents: AgentView[]; state: StateView | null; onLoad: () => void; onMsg: (m: string) => void }) {
+  const [only, setOnly] = useState<'all' | 'detected'>('all');
+  const [sel, setSel] = useState<string | null>(null);
+  const shown = only === 'all' ? agents : agents.filter((a) => a.installed);
+  const modeBadge = (a: AgentView) => a.mode === 'manual' ? '手动挑选' : (a.preset ? `按套餐「${a.preset}」` : '跟随全局已选套餐');
+  if (sel) {
+    const a = agents.find((x) => x.key === sel);
+    if (a) return <AgentDetail a={a} presets={state?.presets ?? []} onLoad={onLoad} onMsg={onMsg} onBack={() => setSel(null)} />;
+  }
+  return (
+    <div className="panel">
+      <div className="panel__head">
+        <h2 className="panel__title">AI 工具</h2>
+        <span className="panel__hint">技能库选中的技能会装到各 AI 工具自己的技能目录。已开启自动同步 {agents.filter((a) => a.active).length} 个 · 已找到目录 {agents.filter((a) => a.installed).length} / 共支持 {agents.length} 个 · 点卡片看它有哪些技能、是自带还是本程序装的</span>
+        <div className="panel__actions">
+          <button className={`btn btn--sm${only === 'all' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('all')}>全部</button>
+          <button className={`btn btn--sm${only === 'detected' ? ' btn--primary' : ' btn--ghost'}`} onClick={() => setOnly('detected')}>已找到目录 {agents.filter((a) => a.installed).length}</button>
+        </div>
+      </div>
+      <div className="grid-card">
+        {shown.map((a) => (
+          <button key={a.key} className="card__inner agent-card" onClick={() => setSel(a.key)} aria-label={`查看 ${a.name} 的技能`}>
             <div className="row__title">
               {a.name}
-              {a.active && <span className="dot dot--good" />}
-              {a.sharedWith.length > 0 && <span className="badge badge--shared" title={`此目录被 ${a.sharedWith.join('、')} 共用`}>共用目录：{a.sharedWith.join('、')}</span>}
-              {a.alsoUsedBy && a.alsoUsedBy.length > 0 && <span className="badge badge--family" title={`同一目录亦被 ${a.alsoUsedBy.join('、')} 读取`}>亦用于：{a.alsoUsedBy.join('、')}</span>}
-              {!a.installed && <span className="badge badge--off">未安装</span>}
+              {a.active && <span className="dot dot--good" title="已开启自动同步" />}
             </div>
-            <div className="row__meta">{a.globalDir} · {a.sync}</div>
-          </div>
-          <div className="row__actions">
-            <button className={`btn ${a.active ? 'btn--primary' : ''} btn--sm`} onClick={() => setActive(a.key)}>
-              {a.active ? '取消活跃' : '设为活跃'}
-            </button>
-            <button className="btn btn--ghost btn--sm" onClick={() => toggleMode(a.key, a.sync)}
-              title={a.sync === 'symlink'
-                ? '当前为软链：每个 skill 在 agent 目录建一个目录软链，指向资产库本体，改动即时生效且不占多余空间'
-                : '当前为复制：把每个 skill 本体复制到 agent 目录，独立可改、但复制多份'} >
-              {a.sync === 'symlink' ? '切换为复制' : '切换为软链'}
-            </button>
-          </div>
-        </div>
-      ))}
+            <div className="row__note" style={{ minHeight: 'auto' }}>{a.installed ? '已找到技能目录' : <span className="badge badge--warn">未找到</span>} · 安装方式：{a.sync === 'symlink' ? '链接' : '复制'}</div>
+            <div className="row__meta" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.globalDir}</div>
+            <div className="skill-tags" style={{ marginTop: 'auto', paddingTop: 'var(--space-2)' }}>
+              <span className={`badge ${a.mode === 'manual' ? 'badge--state' : 'badge--shared'}`}>{modeBadge(a)}</span>
+              {!a.installed && <span className="badge badge--off">未找到目录</span>}
+            </div>
+          </button>
+        ))}
+        {shown.length === 0 && <span className="panel__hint">没有符合筛选的 AI 工具。</span>}
+      </div>
     </div>
   );
 }
@@ -568,8 +671,8 @@ function PresetsView({ state, onLoad }: { state: StateView | null; onLoad: () =>
   return (
     <div className="panel">
       <div className="panel__head">
-        <h2 className="panel__title">技能预设</h2>
-        <span className="panel__hint">把一组常用 skill 打包成「套餐」，激活后立即投放到活跃的 Agent</span>
+        <h2 className="panel__title">技能套餐</h2>
+        <span className="panel__hint">把一组常用技能打包成「套餐」，选中后立刻装到已开启自动同步的 AI 工具</span>
         <div className="panel__actions"><button className="btn" onClick={add}>＋ 新建套餐</button></div>
       </div>
       {state?.presets.map((p) => (
@@ -577,8 +680,8 @@ function PresetsView({ state, onLoad }: { state: StateView | null; onLoad: () =>
             <div className="row__main">
               <div className="row__title">
                 {p.name}
-                {p.active ? <span className="badge badge--state">激活中</span> : <span className="badge badge--off">未激活</span>}
-                <span className="row__note">{p.skills.length} 个 skill</span>
+                {p.active ? <span className="badge badge--state">已开启</span> : <span className="badge badge--off">未开启</span>}
+                <span className="row__note">{p.skills.length} 个技能</span>
               </div>
               <div className="row__note">{p.skills.join('、') || '（空套餐：勾选下方 skill 加入）'}</div>
             <div className="checklist" style={{ marginTop: 8 }}>
@@ -592,7 +695,7 @@ function PresetsView({ state, onLoad }: { state: StateView | null; onLoad: () =>
           </div>
           <div className="row__actions">
             <button className={`btn ${p.active ? 'btn--ghost' : 'btn--primary'} btn--sm`} onClick={() => activate(p.name, !p.active)}>
-              {p.active ? '取消激活' : '激活'}
+              {p.active ? '关闭' : '开启'}
             </button>
           </div>
         </div>

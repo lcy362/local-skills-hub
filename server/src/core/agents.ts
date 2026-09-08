@@ -2,6 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { HubConfig } from '../config/types.js';
+import { hasSkill } from './skill.js';
 
 export type ToolCategory = 'coding' | 'lobster';
 
@@ -84,6 +85,12 @@ export interface AgentView extends AgentDef {
   sharedWith: string[];
   /** 文档化跨产品复用 */
   alsoUsedBy?: string[];
+  /** 技能管理模式；缺省 'preset' */
+  mode?: 'preset' | 'manual';
+  /** mode=preset 时关联的 preset 名 */
+  preset?: string;
+  /** mode=manual 时手动开启的 skill id */
+  manualOn?: string[];
 }
 
 export function listAgents(cfg: HubConfig): AgentView[] {
@@ -101,6 +108,9 @@ export function listAgents(cfg: HubConfig): AgentView[] {
       active,
       layers: def.shared ? [def.shared] : undefined,
       sharedWith: [],
+      ...(ov?.mode ? { mode: ov.mode } : {}),
+      ...(ov?.preset ? { preset: ov.preset } : {}),
+      ...(ov?.manualOn ? { manualOn: ov.manualOn } : {}),
     };
   });
   // 按解析后的 globalDir 分组，同目录者互为 sharedWith
@@ -114,4 +124,38 @@ export function listAgents(cfg: HubConfig): AgentView[] {
     v.sharedWith = (byDir.get(v.globalDir) ?? []).filter((o) => o.key !== v.key).map((o) => o.name);
   }
   return views.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0) || (b.installed ? 1 : 0) - (a.installed ? 1 : 0));
+}
+
+export interface AgentSkillDesc {
+  name: string;
+  /** managed=本系统投放；owned=agent 自有 */
+  source: 'managed' | 'owned';
+  active: boolean;
+  dir: string;
+}
+
+/**
+ * 扫描 agent globalDir 下实际存在的 skill，标注来源。
+ * desiredNames 为该 agent 当前期望部署的技能名字集合（由调用方用 desiredNamesFor 计算）。
+ * - 软链，或名字在期望集合中 → managed
+ * - 否则（真实目录且未期望） → owned
+ */
+export function describeAgentSkills(agentKey: string, cfg: HubConfig, desiredNames: Set<string>): AgentSkillDesc[] {
+  const def = findBuiltin(agentKey);
+  if (!def) return [];
+  const dir = resolveGlobalDir(def, cfg.agents[agentKey]?.globalDir);
+  if (!fs.existsSync(dir)) return [];
+  const out: AgentSkillDesc[] = [];
+  for (const ent of fs.readdirSync(dir)) {
+    const p = path.join(dir, ent);
+    let ls;
+    try { ls = fs.lstatSync(p); } catch { continue; }
+    if (ls.isSymbolicLink()) {
+      out.push({ name: ent, source: 'managed', active: desiredNames.has(ent), dir: p });
+    } else if (ls.isDirectory() && hasSkill(p)) {
+      const managed = desiredNames.has(ent);
+      out.push({ name: ent, source: managed ? 'managed' : 'owned', active: managed, dir: p });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
