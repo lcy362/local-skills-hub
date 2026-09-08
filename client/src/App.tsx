@@ -965,7 +965,7 @@ function ProjectDetail({ index, proj, agents, onLoad, onMsg, onBack }: {
   const toggleSkill = async (s: ProjectSkillView, on: boolean) => {
     setBusy(true);
     if (!on) {
-      if (s.reason === 'tag') {
+      if (s.reason === 'tag' || s.reason === 'index') {
         const off = new Set(proj.explicitOff ?? []); off.add(s.skillId ?? s.name);
         await putOver({ explicitOff: [...off] });
       } else {
@@ -1048,6 +1048,7 @@ function ProjectSkillRow({ s, busy, onToggle, onDel }: {
   const title = s.title || s.name;
   const reasonBadge =
     s.reason === 'own' ? <span className="badge badge--off">自带</span>
+    : s.reason === 'index' ? <span className="badge badge--family">INDEX 托管</span>
     : s.reason === 'tag'
       ? (s.offOverride ? <span className="badge badge--off">标签·已停用</span> : <span className="badge badge--family">标签命中</span>)
       : <span className="badge badge--state">手动开启</span>;

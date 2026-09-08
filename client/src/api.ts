@@ -21,7 +21,7 @@ export interface StateView { activeAgents: string[]; skills: SkillView[]; preset
 export interface RepoView { id: string; path: string; layout: string; root?: string; tags?: { mode: 'auto' | 'frontmatter' | 'repo-file' | 'external-file'; file?: string } }
 export interface SourceView { id: string; name: string; path: string; layout: string; linked: boolean }
 export interface ProjectView { path: string; tags: string[]; agents?: string[]; explicitOn?: string[]; explicitOff?: string[]; hasAgents?: boolean }
-export interface ProjectSkillView { skillId?: string; name: string; title?: string; description?: string; source: 'managed' | 'owned'; wanted: boolean; present: boolean; store: 'copy' | 'pending' | 'own'; reason: 'tag' | 'manual' | 'own'; offOverride?: boolean; disableVia?: 'off' | 'on'; repo?: string; dir?: string }
+export interface ProjectSkillView { skillId?: string; name: string; title?: string; description?: string; source: 'managed' | 'owned'; wanted: boolean; present: boolean; store: 'copy' | 'pending' | 'own'; reason: 'tag' | 'manual' | 'index' | 'own'; offOverride?: boolean; disableVia?: 'off' | 'on'; repo?: string; dir?: string }
 export interface ProjectSkillsResp { skills: ProjectSkillView[]; addable: AddableSkill[] }
 export interface Candidate { id: string; name: string; source: string; sourceLabel: string; dir: string; inRepo: boolean; description?: string }
 export interface IntegrateGroup { name: string; candidates: Candidate[] }

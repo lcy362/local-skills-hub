@@ -6,17 +6,63 @@ import { readSkill } from './skill.js';
 import { listAgents, resolveProjectDir } from './agents.js';
 import { ProjectLink } from '../config/types.js';
 
-/** 项目的期望集 = 标签命中 ∪ 逐个开启 − 逐个关闭 */
+/** 项目技能目录的清单文件名（目录 = INDEX.md，被管理/已安装的 skill 登记于此） */
+export const INDEX_NAME = 'INDEX.md';
+
+/** 读取 .agents/skills/INDEX.md 中登记（托管）的 skill 名。返回空集表示尚无目录文件 */
+export function readIndexSkillNames(agentsRoot: string): Set<string> {
+  const f = path.join(agentsRoot, INDEX_NAME);
+  if (!fs.existsSync(f)) return new Set();
+  const names = new Set<string>();
+  // 兼容两种写法：`[title](<name>/SKILL.md)` 链接 或 `- name` 平铺
+  const link = /\]\(\s*([^()\s/]+)\/?SKILL\.md\s*\)/;
+  const bare = /^\s*[-*]\s*`?([a-zA-Z0-9._-]+)`?\s*$/;
+  for (const line of fs.readFileSync(f, 'utf-8').split('\n')) {
+    const m = line.match(link) ?? line.match(bare);
+    if (m && !/^\s*#/.test(line)) names.add(m[1].trim());
+  }
+  return names;
+}
+
+/** 依据当前被管理的 skill 重建 .agents/skills/INDEX.md（目录随实际状态保持一致） */
+export function writeIndex(agentsRoot: string, managed: { name: string; title?: string; description?: string }[]): void {
+  fs.mkdirSync(agentsRoot, { recursive: true });
+  const lines = ['# Skills Index', '', '由 skills-hub 管理，登记本项目已托管 / 安装的 skill：', ''];
+  for (const s of [...managed].sort((a, b) => a.name.localeCompare(b.name))) {
+    const desc = s.description ? ` — ${s.description.replace(/\s+/g, ' ').trim()}` : '';
+    lines.push(`- **[${s.title || s.name}](${s.name}/SKILL.md)**${desc}`);
+  }
+  lines.push('');
+  fs.writeFileSync(path.join(agentsRoot, INDEX_NAME), lines.join('\n'), 'utf-8');
+}
+
+/**
+ * 项目的期望集：
+ *  标签命中 ∪ 逐个开启 ∪ INDEX.md 登记成员 − 逐个关闭
+ *  INDEX.md 是项目的实际目录：其中登记的 skill 视为本项目托管，不因标签缺失而被删/被清。
+ */
 export function projectedSkills(cfg: ConfigStore, proj: ProjectLink, allSkills: Skill[]): Skill[] {
   const tagSet = new Set(proj.tags);
   const on = new Set(proj.explicitOn ?? []);
   const off = new Set(proj.explicitOff ?? []);
-  return allSkills.filter((s) => {
+  const byName = new Map(allSkills.map((s) => [s.name, s] as const));
+  const out: Skill[] = [];
+  const seen = new Set<string>();
+  const add = (s: Skill) => { if (!seen.has(s.name)) { seen.add(s.name); out.push(s); } };
+  for (const s of allSkills) {
     const tags = cfg.data.skillMeta[s.id]?.tags ?? [];
     const inTag = tagSet.size > 0 && tags.some((t) => tagSet.has(t));
-    if (!(inTag || on.has(s.id))) return false;
-    return !off.has(s.id);
-  });
+    if (!(inTag || on.has(s.id))) continue;
+    if (off.has(s.id)) continue;
+    add(s);
+  }
+  const root = path.join(proj.path, '.agents', 'skills');
+  for (const n of readIndexSkillNames(root)) {
+    if (seen.has(n)) continue;
+    const s = byName.get(n);
+    if (s && !off.has(s.id)) add(s);
+  }
+  return out;
 }
 
 export interface ProjectSkillRow {
@@ -28,8 +74,8 @@ export interface ProjectSkillRow {
   wanted: boolean;
   present: boolean;
   store: 'copy' | 'pending' | 'own';
-  /** 来源原因：标签命中 / 逐个开启 / 自带 */
-  reason: 'tag' | 'manual' | 'own';
+  /** 来源原因：标签命中 / 逐个开启 / INDEX 托管 / 自带 */
+  reason: 'tag' | 'manual' | 'index' | 'own';
   /** 标签命中但被逐个关闭 */
   offOverride?: boolean;
   /** 关闭该技能时应走哪个叠加集：'off'=加入 explicitOff（标签命中成员）；'on'=移出 explicitOn */
@@ -53,28 +99,30 @@ export function projectSkillRows(cfg: ConfigStore, proj: ProjectLink, allSkills:
   }
   const rows: ProjectSkillRow[] = [];
   const desired = projectedSkills(cfg, proj, allSkills);
+  const indexedNames = new Set(readIndexSkillNames(agentsRoot));
+  const desiredNames = new Set(desired.map((s) => s.name));
 
   // 1) 期望集行
   for (const s of desired) {
     const inTag = (cfg.data.skillMeta[s.id]?.tags ?? [])
       .some((t) => (proj.tags ?? []).includes(t));
     const inOn = onIds.has(s.id);
+    const inIndex = indexedNames.has(s.name);
     const present = presentNames.has(s.name) && !presentIsLink.get(s.name);
     const off = offIds.has(s.id);
     rows.push({
       skillId: s.id, name: s.name, title: s.name, description: s.description,
       source: 'managed', wanted: true, present,
       store: present ? 'copy' : 'pending',
-      reason: inOn ? 'manual' : 'tag',
-      offOverride: inTag && off ? true : undefined,
-      disableVia: inTag ? 'off' : 'on',
+      reason: inOn ? 'manual' : inIndex ? 'index' : 'tag',
+      offOverride: (inTag || inIndex) && off ? true : undefined,
+      disableVia: (inTag || inIndex) ? 'off' : 'on',
       repo: s.source,
       dir: present ? path.join(agentsRoot, s.name) : undefined,
     });
   }
 
   // 2) 目录中存在但不在期望集（残留 / 自带）
-  const desiredNames = new Set(desired.map((s) => s.name));
   for (const name of presentNames) {
     if (desiredNames.has(name)) continue;
     const isLink = presentIsLink.get(name) ?? false;
@@ -215,6 +263,15 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   // 项目级 agent 软链：以实际目录结构为准（wantedAgents 缺省=沿用当前已投放者）
   const created = ensureAgentLinks(cfg, projectPath, wantedAgents);
   for (const key of created) res.agentLinks.push({ agent: key, created: [...seen] });
+
+  // 重建 INDEX.md：登记此刻本项目托管/已安装的 skill（目录随实际状态保持一致）
+  const managed: { name: string; title?: string; description?: string }[] = [];
+  for (const s of desired) {
+    if (fs.existsSync(path.join(agentsRoot, s.name, 'SKILL.md'))) {
+      managed.push({ name: s.name, title: s.name, description: s.description });
+    }
+  }
+  writeIndex(agentsRoot, managed);
   return res;
 }
 
