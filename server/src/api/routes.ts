@@ -9,7 +9,7 @@ import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
 import { syncActive, diffSync, computeDesired, desiredContext } from '../core/sync.js';
 import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
-import { addProject, syncProject, projectSkillRows, projectAddable } from '../core/projects.js';
+import { addProject, syncProject, projectSkillRows, projectAddable, deployedAgents } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
 import { previewCollect, collectAgentSkill } from '../core/collect.js';
 import { readTags, writeTags } from '../core/repo-tags.js';
@@ -255,13 +255,14 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
 
   // ---- projects (项目级 skill) ----
   r.get('/projects', (_req, res) => {
-    res.json(cfg.data.projects.map((p) => ({ ...p, hasAgents: fs.existsSync(path.join(p.path, '.agents', 'skills')) })));
+    res.json(cfg.data.projects.map((p) => ({ ...p, agents: deployedAgents(cfg, p.path), hasAgents: fs.existsSync(path.join(p.path, '.agents', 'skills')) })));
   });
   r.post('/projects', (req, res) => {
     try {
-      const p = addProject(cfg, String(req.body?.path), Array.isArray(req.body?.tags) ? req.body.tags : [], Array.isArray(req.body?.agents) ? req.body.agents : undefined);
-      // 立即同步：生成 .agents/skills 并按所选 agent 建立软链，避免需再手点「同步 .agents」
-      syncProject(cfg, p, library().skills);
+      const p = addProject(cfg, String(req.body?.path), Array.isArray(req.body?.tags) ? req.body.tags : []);
+      // 立即同步：生成 .agents/skills，并按所选 agent（调起时勾选的投放对象）建立软链
+      const wanted = Array.isArray(req.body?.agents) ? new Set<string>(req.body.agents as string[]) : undefined;
+      syncProject(cfg, p, library().skills, wanted);
       res.json(cfg.data.projects);
     } catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
@@ -271,18 +272,16 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     if (!proj) return res.status(404).json({ error: 'project not found' });
     if (Array.isArray(req.body?.tags)) proj.tags = req.body.tags;
     cfg.save();
-    const syncResult = syncProject(cfg, proj.path, library().skills); // 标签变化 → 立即重投
-    res.json({ ...proj, sync: syncResult });
+    const syncResult = syncProject(cfg, proj.path, library().skills); // 标签变化 → 立即重投（沿用当前已投放 agent）
+    res.json({ ...proj, agents: deployedAgents(cfg, proj.path), sync: syncResult });
   });
   r.put('/projects/:id/agents', (req, res) => {
     const id = Number(req.params.id);
     const proj = cfg.data.projects[id];
     if (!proj) return res.status(404).json({ error: 'project not found' });
-    const list = Array.isArray(req.body?.agents) ? req.body.agents : [];
-    proj.agents = list.length ? list : undefined; // 省略/空 = 全部支持
-    cfg.save();
-    const syncResult = syncProject(cfg, proj.path, library().skills); // 更换投放 agent → 立即建立/撤除软链
-    res.json({ ...proj, sync: syncResult });
+    // 建立/撤除软链即"投放状态"本身，以实际目录结构为唯一事实，不写入配置
+    const syncResult = syncProject(cfg, proj.path, library().skills, new Set<string>(Array.isArray(req.body?.agents) ? req.body.agents : []));
+    res.json({ ...proj, agents: deployedAgents(cfg, proj.path), sync: syncResult });
   });
   // 项目技能列表（与 agent 技能管理对齐）+ 逐个开关覆盖
   r.get('/projects/:id/skills', (req, res) => {

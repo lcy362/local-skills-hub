@@ -876,13 +876,13 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
     reload();
   };
   const setProjectAgents = async (i: number, list: string[]) => {
-    // 空 = 全部支持；否则完整覆盖
+    // 建立/撤除软链即投放状态，传哪份 agent 就投给谁；空数组=撤除全部
     await api(`/projects/${i}/agents`, { method: 'PUT', body: JSON.stringify({ agents: list }) });
     reload();
   };
   const agentsLabel = (p: ProjectView) => {
     if (p.agents && p.agents.length) return p.agents.map((k) => agents.find((a) => a.key === k)?.name ?? k).join('、');
-    return '全部 agent';
+    return '未投放';
   };
 
   if (sel !== null) {
@@ -905,7 +905,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
           {projectAgents.map((a) => (
             <button key={a.key} className={`chip${addAgents.includes(a.key) ? ' is-on' : ''}`} onClick={() => setAddAgents((prev) => toggle(prev, a.key))}>{a.name}</button>
           ))}
-          {addAgents.length > 0 && <span className="row__note">（未勾选的 agent 也会全部投放；勾选任一后只投放勾选项）</span>}
+          {addAgents.length > 0 && <span className="row__note">（勾选的 agent 会在登记后立即建立软链；不勾选则不投放）</span>}
         </div>
       )}
       {projects.map((p, i) => {
@@ -926,7 +926,7 @@ function ProjectsView({ onMsg }: { onMsg: (m: string) => void }) {
               {!editing && (
                 <>
                   <button className="btn btn--ghost btn--sm" onClick={() => setEditingAgents((prev) => ({ ...prev, [i]: { list: p.agents ?? [] } }))}>编辑投放</button>
-                  {p.agents && p.agents.length > 0 && <button className="btn btn--ghost btn--sm" onClick={() => setProjectAgents(i, [])} title="恢复为投放给全部 agent">全部</button>}
+                  {projectAgents.length > 0 && (!p.agents || p.agents.length < projectAgents.length) && <button className="btn btn--ghost btn--sm" onClick={() => setProjectAgents(i, projectAgents.map((a) => a.key))} title="为所有可软链 agent 建立项目技能目录软链">全部</button>}
                 </>
               )}
               {editing && (
@@ -1008,7 +1008,7 @@ function ProjectDetail({ index, proj, agents, onLoad, onMsg, onBack }: {
   } : null;
   const agentsLabel = proj.agents && proj.agents.length
     ? proj.agents.map((k) => agents.find((a) => a.key === k)?.name ?? k).join('、')
-    : '全部 agent';
+    : '未投放';
 
   return (
     <div className="panel">

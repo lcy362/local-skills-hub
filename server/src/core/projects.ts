@@ -110,12 +110,73 @@ export interface ProjectSyncResult {
   errors: string[];
 }
 
+/** 会以「项目目录软链 → .agents/skills」方式投放的 agent（有 project 目录且非复制模式） */
+export function linkableAgents(cfg: ConfigStore) {
+  return listAgents(cfg.data).filter((a) => a.project && cfg.data.agents[a.key]?.sync !== 'copy');
+}
+
+/** 某 agent 的项目技能目录 */
+function agentLinkDir(cfg: ConfigStore, a: { key: string }, projectPath: string): string | undefined {
+  return resolveProjectDir(listAgents(cfg.data).find((x) => x.key === a.key)!, projectPath, cfg.data.agents[a.key]?.projectDir);
+}
+
+/** 判断 p 是否为指向 target 的目录软链（.agents/skills 即"已投放"，为该 agent 的实际目录结构） */
+function isSymlinkTo(p: string, target: string): boolean {
+  try {
+    if (fs.lstatSync(p).isSymbolicLink() && fs.existsSync(p)) return fs.realpathSync(p) === fs.realpathSync(target);
+  } catch { /* skip */ }
+  return false;
+}
+
+/** 从实际目录结构读取本项目已投放的 agent（项目技能目录为软链指向 .agents/skills 者），无需配置 */
+export function deployedAgents(cfg: ConfigStore, projectPath: string): string[] {
+  const target = path.join(projectPath, '.agents', 'skills');
+  if (!fs.existsSync(target)) return [];
+  const out: string[] = [];
+  for (const a of linkableAgents(cfg)) {
+    const linkDir = agentLinkDir(cfg, a, projectPath);
+    if (linkDir && isSymlinkTo(linkDir, target)) out.push(a.key);
+  }
+  return out;
+}
+
+/**
+ * 让项目技能目录软链与期望集合对齐（期望集=本次调用传入的 wantedAgents，缺省=沿用当前已投放者）。
+ * 依据实际目录结构建/撤软链，不写任何配置。返回新建的 agent key 列表。
+ */
+export function ensureAgentLinks(cfg: ConfigStore, projectPath: string, wanted?: Set<string>): string[] {
+  const created: string[] = [];
+  const target = path.join(projectPath, '.agents', 'skills');
+  fs.mkdirSync(target, { recursive: true });
+  const setMode = !!wanted;
+  for (const a of linkableAgents(cfg)) {
+    const linkDir = agentLinkDir(cfg, a, projectPath);
+    if (!linkDir) continue;
+    const already = isSymlinkTo(linkDir, target);
+    const want = setMode ? wanted!.has(a.key) : already;
+    if (want) {
+      if (already) continue; // 已投放且指向正确
+      fs.mkdirSync(path.dirname(linkDir), { recursive: true });
+      if (fs.existsSync(linkDir) && !fs.lstatSync(linkDir).isSymbolicLink()) {
+        continue; // 真实目录：不覆盖，避免误删用户手动放置的 skill
+      }
+      if (fs.existsSync(linkDir)) fs.rmSync(linkDir, { recursive: true, force: true });
+      fs.symlinkSync(target, linkDir, 'dir');
+      created.push(a.key);
+    } else if (already) {
+      // setMode 下不再需要该 agent → 撤除软链（实际目录结构回到"未投放"）
+      fs.rmSync(linkDir, { recursive: true, force: true });
+    }
+  }
+  return created;
+}
+
 /**
  * 项目级同步：
  * 1) 把项目期望集（标签匹配 ∪ 逐个开启 − 逐个关闭）的 skill 本体复制到 <project>/.agents/skills
- * 2) 其他 agent 的项目级目录软链到 .agents（共享同一份副本，服务团队协作）
+ * 2) 让项目投放的 agent 的项目技能目录软链到 .agents（共享同一份副本；投放状态即实际目录结构，不存配置）
  */
-export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Skill[]): ProjectSyncResult {
+export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Skill[], wantedAgents?: Set<string>): ProjectSyncResult {
   const res: ProjectSyncResult = { project: projectPath, copied: [], removed: [], agentLinks: [], errors: [] };
   const proj = cfg.data.projects.find((p) => path.resolve(p.path) === path.resolve(projectPath));
   if (!proj) { res.errors.push('项目未登记'); return res; }
@@ -151,37 +212,17 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
     } catch { /* skip */ }
   }
 
-  // 其他 agent 的项目级目录软链到 .agents/skills（对整目录建一条软链，共享同一份副本，无需每个 skill 一条）
-  // 仅软链本「项目支持的 agent」（proj.agents 省略 = 全部）
-  const supported = new Set(proj.agents);
-  for (const a of listAgents(cfg.data)) {
-    if (supported.size > 0 && !supported.has(a.key)) continue;
-    if (!a.project) continue;
-    if (cfg.data.agents[a.key]?.sync === 'copy') continue; // 复制模式 agent 也复制本体到各自项目目录
-    const target = agentsRoot;
-    const linkDir = resolveProjectDir(a, projectPath, cfg.data.agents[a.key]?.projectDir);
-    if (!linkDir) continue;
-    fs.mkdirSync(path.dirname(linkDir), { recursive: true });
-    if (fs.existsSync(linkDir) && fs.lstatSync(linkDir).isSymbolicLink()) {
-      // 已是软链：指向正确则跳过，否则重建
-      if (fs.realpathSync(linkDir) === fs.realpathSync(target)) continue;
-      fs.rmSync(linkDir, { recursive: true, force: true });
-    } else if (fs.existsSync(linkDir)) {
-      // 非软链的真实目录：不覆盖，避免误删用户手动放置的 skill
-      res.errors.push(`${a.key}: 项目目录已存在真实内容（${linkDir}），跳过软链`);
-      continue;
-    }
-    fs.symlinkSync(target, linkDir, 'dir');
-    res.agentLinks.push({ agent: a.key, created: [...seen] });
-  }
+  // 项目级 agent 软链：以实际目录结构为准（wantedAgents 缺省=沿用当前已投放者）
+  const created = ensureAgentLinks(cfg, projectPath, wantedAgents);
+  for (const key of created) res.agentLinks.push({ agent: key, created: [...seen] });
   return res;
 }
 
-export function addProject(cfg: ConfigStore, projectPath: string, tags: string[], agents?: string[]): string {
+export function addProject(cfg: ConfigStore, projectPath: string, tags: string[]): string {
   const abs = path.resolve(projectPath);
   if (!fs.existsSync(abs)) throw new Error(`路径不存在: ${abs}`);
   if (cfg.data.projects.some((p) => path.resolve(p.path) === abs)) throw new Error('项目已登记');
-  cfg.data.projects.push({ path: abs, tags, agents: agents && agents.length ? agents : undefined });
+  cfg.data.projects.push({ path: abs, tags });
   cfg.save();
   return abs;
 }

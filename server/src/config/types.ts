@@ -60,9 +60,8 @@ export interface SkillMeta {
 
 export interface ProjectLink {
   path: string;
+  /** 标签：决定默认投放哪些 skill（依标签命中）。是"投放策略"，非目录快照。 */
   tags: string[];
-  /** 项目支持的 agent key 列表；省略 = 全部支持 */
-  agents?: string[];
   /** 项目内逐个开启的 skill id（name@来源）：在标签命中之外显式补入 */
   explicitOn?: string[];
   /** 项目内逐个关闭的 skill id：从期望集里裁剪（仅标签命中成员可按此关闭） */
