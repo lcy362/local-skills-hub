@@ -24,15 +24,15 @@ export function readIndexSkillNames(agentsRoot: string): Set<string> {
   return names;
 }
 
-/** 依据当前被管理的 skill 重建 .agents/skills/INDEX.md（目录随实际状态保持一致） */
+/** 依据当前被管理的 skill 重建 .agents/skills/INDEX.md（纯目录清单，不含标题，不包含本程序相关信息） */
 export function writeIndex(agentsRoot: string, managed: { name: string; title?: string; description?: string }[]): void {
   fs.mkdirSync(agentsRoot, { recursive: true });
-  const lines = ['# Skills Index', '', '由 skills-hub 管理，登记本项目已托管 / 安装的 skill：', ''];
+  const lines: string[] = [];
   for (const s of [...managed].sort((a, b) => a.name.localeCompare(b.name))) {
     const desc = s.description ? ` — ${s.description.replace(/\s+/g, ' ').trim()}` : '';
     lines.push(`- **[${s.title || s.name}](${s.name}/SKILL.md)**${desc}`);
   }
-  lines.push('');
+  if (lines.length) lines.push('');
   fs.writeFileSync(path.join(agentsRoot, INDEX_NAME), lines.join('\n'), 'utf-8');
 }
 
