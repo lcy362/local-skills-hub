@@ -2,13 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ConfigStore } from '../config/store.js';
 import { Skill } from './skill.js';
-import { findBuiltin, resolveGlobalDir, expandTilde } from './agents.js';
+import { effectiveTags } from './tags.js';
+import { findAgentDef, resolveGlobalDir, expandTilde } from './agents.js';
 
 export interface SyncResult {
   agent: string;
   created: string[];
   removed: string[];
   failed: { skill: string; reason: string }[];
+  /** 非致命提示：如 Windows 软链无权限时自动降级为复制（NFR-02） */
+  warnings?: string[];
 }
 
 export interface DesiredContext {
@@ -37,28 +40,51 @@ function nameOf(id: string): string {
 /**
  * 解析某 agent 的期望技能上下文。
  * 期望 = 基准 ∪ explicitOn − explicitOff，其中：
+ * - 默认 mode=preset（PR-02：激活的 preset 即分发到该 agent）
+ * - mode=preset + preset：基准 = 该套餐成员 ∪ 该套餐关联标签命中的 skill（PR-05）
+ * - mode=preset，未指定 preset：基准 = 所有「激活 presets」成员 ∪ 其标签命中
  * - mode=manual：基准为空（期望全靠 explicitOn）
- * - mode=preset + preset：基准 = 该套餐成员
- * - mode=preset，未指定 preset：基准 = 所有「激活 presets」并集
  * agentKey 为空时，desired 仅含全局激活 presets 成员（兼容全局同步）。
  */
 export function desiredContext(cfg: ConfigStore, allSkills: Skill[], agentKey?: string): DesiredContext {
   const ov = agentKey ? cfg.data.agents[agentKey] : undefined;
-  const mode = ov?.mode ?? 'manual';
+  const mode = ov?.mode ?? 'preset';
   const onIds = ov?.explicitOn ?? [];
   const offIds = new Set(ov?.explicitOff ?? []);
   const offNames = new Set([...offIds].map(nameOf));
   const baselineNames = new Set<string>();
   const presetOf = new Map<string, string>();
+
   if (mode === 'preset') {
+    // 标签命中：打有套餐关联标签的 skill 一并纳入（PR-05）
+    const byTag = (tags: string[], name: string, preset: string) => {
+      if (tags.length === 0) return;
+      const set = new Set(tags);
+      for (const s of allSkills) {
+        if (effectiveTags(cfg.data, s).some((t) => set.has(t))) {
+          baselineNames.add(s.name);
+          if (!presetOf.has(s.name)) presetOf.set(s.name, preset);
+        }
+      }
+      void name;
+    };
     const pushBase = (id: string, preset: string) => {
       baselineNames.add(nameOf(id));
       if (!presetOf.has(nameOf(id))) presetOf.set(nameOf(id), preset);
     };
     const p = ov?.preset ? cfg.data.presets.find((x) => x.name === ov.preset) : undefined;
-    if (p) { for (const id of p.skills) pushBase(id, p.name); }
-    else { for (const q of cfg.data.presets) if (q.active) for (const id of q.skills) pushBase(id, q.name); }
+    if (p) {
+      for (const id of p.skills) pushBase(id, p.name);
+      byTag(p.tags ?? [], p.name, p.name);
+    } else {
+      for (const q of cfg.data.presets) {
+        if (!q.active) continue;
+        for (const id of q.skills) pushBase(id, q.name);
+        byTag(q.tags ?? [], q.name, q.name);
+      }
+    }
   }
+
   const desired = new Map<string, Skill>();
   const addById = (id: string) => {
     if (offIds.has(id) || offNames.has(nameOf(id))) return;
@@ -93,6 +119,12 @@ export function desiredNamesFor(cfg: ConfigStore, allSkills: Skill[], agentKey: 
   return new Set([...computeDesired(cfg, allSkills, agentKey).values()].map((s) => s.name));
 }
 
+/** 每条 (skill, Agent) 关系的同步策略：关系覆盖 > agent 覆盖 > 全局默认（SY-01） */
+export function resolveSyncMode(cfg: ConfigStore, agentKey: string, skillName: string): 'symlink' | 'copy' {
+  const ov = cfg.data.agents[agentKey];
+  return ov?.skillSync?.[skillName] ?? ov?.sync ?? cfg.data.defaultSync;
+}
+
 export function symlinkSkill(linkPath: string, targetDir: string): void {
   fs.mkdirSync(path.dirname(linkPath), { recursive: true });
   // 清理旧的半成品链接/目录
@@ -111,7 +143,7 @@ export function copySkill(linkPath: string, targetDir: string): void {
 }
 
 export function deployAgent(cfg: ConfigStore, agentKey: string, desired: Map<string, Skill>, allSkills: Skill[]): SyncResult {
-  const def = findBuiltin(agentKey);
+  const def = findAgentDef(cfg.data, agentKey);
   const result: SyncResult = { agent: agentKey, created: [], removed: [], failed: [] };
   if (!def) {
     result.failed.push({ skill: '*', reason: `未知 agent: ${agentKey}` });
@@ -119,9 +151,11 @@ export function deployAgent(cfg: ConfigStore, agentKey: string, desired: Map<str
   }
   // 共享目录的 agent（cline/warp 等）与其它 agent 共用 ~/.agents/skills，采用“只清理本 agent 曾部署项”逻辑
   const agentsDir = resolveGlobalDir(def, cfg.data.agents[agentKey]?.globalDir);
-  if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
+  if (!fs.existsSync(agentsDir)) {
+    try { fs.mkdirSync(agentsDir, { recursive: true }); }
+    catch (e) { result.failed.push({ skill: '*', reason: `无法创建目录 ${agentsDir}: ${(e as Error).message}` }); return result; }
+  }
 
-  const mode = cfg.data.agents[agentKey]?.sync ?? cfg.data.defaultSync;
   const seen = new Set<string>();
 
   for (const sk of desired.values()) {
@@ -130,12 +164,22 @@ export function deployAgent(cfg: ConfigStore, agentKey: string, desired: Map<str
     seen.add(sk.name);
     if (fs.existsSync(linkDir) && fs.lstatSync(linkDir).isSymbolicLink()) {
       // 已软链且指向正确则跳过
-      const targetStat = fs.realpathSync(linkDir);
-      if (targetStat === fs.realpathSync(target)) continue;
+      try {
+        if (fs.realpathSync(linkDir) === fs.realpathSync(target)) continue;
+      } catch { /* 目标失效，继续重建 */ }
     }
     try {
-      if (mode === 'copy') copySkill(linkDir, target);
-      else symlinkSkill(linkDir, target);
+      if (resolveSyncMode(cfg, agentKey, sk.name) === 'copy') {
+        copySkill(linkDir, target);
+      } else {
+        try {
+          symlinkSkill(linkDir, target);
+        } catch (e) {
+          // NFR-02：软链不可用（Windows 权限等）自动降级为复制
+          copySkill(linkDir, target);
+          (result.warnings ??= []).push(`${sk.name}: 软链不可用，已降级为复制（${(e as Error).message}）`);
+        }
+      }
       result.created.push(sk.id);
     } catch (e) {
       result.failed.push({ skill: sk.id, reason: (e as Error).message });
@@ -181,7 +225,7 @@ export interface SyncDiff {
 export function diffSync(cfg: ConfigStore, allSkills: Skill[]): SyncDiff[] {
   const out: SyncDiff[] = [];
   for (const key of cfg.data.activeAgents) {
-    const def = findBuiltin(key);
+    const def = findAgentDef(cfg.data, key);
     if (!def) continue;
     const dir = resolveGlobalDir(def, cfg.data.agents[key]?.globalDir);
     const desiredNames = [...desiredNamesFor(cfg, allSkills, key)];

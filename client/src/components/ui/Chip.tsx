@@ -11,7 +11,7 @@ export default function Chip<T extends string = string>({ options, value, onChan
   const [internal, setInternal] = useState<T | undefined>();
   const current = value !== undefined ? value : internal;
   return (
-    <div className="skill-toolbar__filters">
+    <div className="filter-row">
       {options.map((o) => {
         const on = o.value === current;
         return (

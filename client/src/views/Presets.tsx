@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, type PresetView, type StateView } from '../api/types';
+import EntityList from '../components/common/EntityList';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -41,32 +42,29 @@ export default function Presets() {
         empty={{ title: '还没有预设', hint: '创建预设以固定一组技能，供 Agent 快速启用。', icon: '□' }}
       >
         {() => (
-          <div className="panel" style={{ padding: 0 }}>
-            <div className="skill-list" style={{ padding: 'var(--sp-4)' }}>
-              {preset.map((p) => (
-                <div key={p.name} className="skill-row">
-                  <Switch checked={!!p.active} onChange={(v) => void toggle(p, v, reload, toast)} />
-                  <div className="skill-row__main">
-                    <div className="skill-row__title">
-                      {p.name}
-                      {p.active && <Badge tone="good">启用</Badge>}
-                    </div>
-                    <div className="skill-row__sub">
-                      {p.skills.length} 个技能 · {p.tags.join(', ') || '无标签'}
-                    </div>
-                  </div>
-                  <div className="skill-row__right">
-                    <Button size="sm" onClick={() => setEdit(p)}>
-                      编辑
-                    </Button>
-                    <Button size="sm" variant="danger" onClick={() => remove(p.name)}>
-                      删除
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <EntityList
+            items={preset.map((p) => ({
+              id: p.name,
+              title: p.name,
+              sub: `${p.skills.length} 个技能 · ${p.tags.length ? p.tags.map((t) => `#${t}`).join(' ') : '无标签'}`,
+              status: p.active ? <Badge tone="good" dot="good">启用</Badge> : <Badge tone="neutral" dot="neutral">未启用</Badge>,
+              toggle: (
+                <Switch
+                  aria-label={`启用 ${p.name}`}
+                  checked={!!p.active}
+                  onChange={(v) => void toggle(p, v, reload, toast)}
+                />
+              ),
+              actions: (
+                <>
+                  <Button size="sm" onClick={() => setEdit(p)}>编辑</Button>
+                  <Button size="sm" variant="danger" onClick={() => remove(p.name)}>删除</Button>
+                </>
+              ),
+              muted: !p.active,
+            }))}
+            title={`全部预设（${preset.length}）`}
+          />
         )}
       </LoadingBoundary>
 
@@ -106,6 +104,7 @@ function PresetModal({
 }) {
   const [name, setName] = useState('');
   const [skills, setSkills] = useState('');
+  const [tags, setTags] = useState('');
   const [active, setActive] = useState(false);
   const [saving, setSaving] = useState(false);
   const [synced, setSynced] = useState<string | null>(null);
@@ -114,13 +113,19 @@ function PresetModal({
     setSynced(preset.name);
     setName(preset.name);
     setSkills(preset.skills.join(','));
+    setTags((preset.tags ?? []).join(','));
     setActive(!!preset.active);
   }
   if (!open && synced !== null) setSynced(null);
 
   const save = async () => {
     setSaving(true);
-    const body = JSON.stringify({ name, skills: skills.split(',').map((s) => s.trim()).filter(Boolean), active });
+    const body = JSON.stringify({
+      name,
+      skills: skills.split(',').map((s) => s.trim()).filter(Boolean),
+      tags: tags.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+      active,
+    });
     try {
       if (preset) await api(`/presets/${encodeURIComponent(preset.name)}`, { method: 'PUT', body });
       else await api('/presets', { method: 'POST', body });
@@ -140,22 +145,23 @@ function PresetModal({
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button variant="primary" loading={saving} onClick={save} disabled={!name.trim()}>
-            保存
-          </Button>
+          <Button variant="ghost" onClick={onClose}>取消</Button>
+          <Button variant="primary" loading={saving} onClick={save} disabled={!name.trim()}>保存</Button>
         </>
       }
     >
       <FieldInput label="预设名称" value={name} onChange={(e) => setName(e.target.value)} readOnly={!!preset} />
       <FieldInput label="技能（逗号分隔）" placeholder="skill-a, skill-b" value={skills} onChange={(e) => setSkills(e.target.value)} />
+      <FieldInput
+        label="关联标签（逗号分隔 · PR-05）"
+        hint="打有这些标签的 skill 会自动加入本预设，与显式技能取并集"
+        placeholder="react, frontend"
+        value={tags}
+        onChange={(e) => setTags(e.target.value)}
+      />
       <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
         <Switch checked={active} onChange={setActive} />
-        <span className="field-label" style={{ marginBottom: 0 }}>
-          启用
-        </span>
+        <span className="field-label" style={{ marginBottom: 0 }}>启用</span>
       </label>
     </Modal>
   );

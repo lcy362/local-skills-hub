@@ -1,69 +1,69 @@
-import { useState } from 'react';
 import type { SkillAction, SkillCardView } from '../../api/types';
-import SkillCard from './SkillCard';
-import SkillListRow from './SkillListRow';
-import Segment from '../ui/Segment';
-
-export type SkillView = 'card' | 'list';
+import EntityList, { type EntityItem, type EntityListProps } from '../common/EntityList';
+import Switch from '../ui/Switch';
+import { isOn, skillBadges, stateBadge } from './SkillBadges';
+import SkillActions from './SkillActions';
 
 interface SkillListProps {
   items: SkillCardView[];
-  view?: SkillView;
-  defaultView?: SkillView;
-  onViewChange?: (v: SkillView) => void;
+  title?: EntityListProps['title'];
+  toolbar?: EntityListProps['toolbar'];
   onToggle?: (item: SkillCardView) => void;
   onAction?: (item: SkillCardView, action: SkillAction) => void;
   onTag?: (item: SkillCardView, tag: string) => void;
-  title?: string;
+  /** 点击整块（卡片/行）打开详情 */
+  onOpen?: (item: SkillCardView) => void;
+  /** 强制布局，用于弹窗等固定形态 */
+  mode?: EntityListProps['mode'];
+  empty?: EntityListProps['empty'];
 }
 
-/** 统一技能展示容器：手机库 / Agent 详情 / Project 详情共用 */
+/** SkillCardView → 通用 EntityItem，保证与其他实体列表风格一致 */
+export function skillToEntity(
+  item: SkillCardView,
+  opts: {
+    onToggle?: (item: SkillCardView) => void;
+    onAction?: (item: SkillCardView, action: SkillAction) => void;
+    onTag?: (item: SkillCardView, tag: string) => void;
+    onOpen?: (item: SkillCardView) => void;
+  } = {}
+): EntityItem {
+  const { onToggle, onAction, onTag, onOpen } = opts;
+  const on = isOn(item);
+  return {
+    id: item.id,
+    title: item.title || item.name,
+    sub: <span className="mono">{item.id}</span>,
+    desc: item.description,
+    status: stateBadge(item),
+    badges: skillBadges(item),
+    tags: (item.tags ?? []).map((t) => ({ label: t, onClick: onTag ? () => onTag(item, t) : undefined })),
+    meta: <>{item.source}</>,
+    toggle: onToggle ? (
+      <Switch
+        aria-label={on ? `停用 ${item.name}` : `启用 ${item.name}`}
+        checked={on}
+        onChange={() => onToggle(item)}
+      />
+    ) : undefined,
+    actions: <SkillActions item={item} onAction={onAction} />,
+    onClick: onOpen ? () => onOpen(item) : undefined,
+    muted: !on,
+  };
+}
+
+/** 技能展示容器（三处上下文共用：技能库 / Agent 详情 / 项目详情） */
 export default function SkillList({
   items,
-  view,
-  defaultView = 'card',
-  onViewChange,
+  title,
+  toolbar,
   onToggle,
   onAction,
   onTag,
-  title,
+  onOpen,
+  mode,
+  empty,
 }: SkillListProps) {
-  const [internalView, setInternalView] = useState<SkillView>(defaultView);
-  const current = view ?? internalView;
-  const setCurrent = (v: SkillView) => {
-    if (view === undefined) setInternalView(v);
-    onViewChange?.(v);
-  };
-
-  return (
-    <div>
-      <div className="skill-toolbar">
-        {title && <h2 className="page-head__title" style={{ fontSize: 'var(--fs-18)' }}>{title}</h2>}
-        <span style={{ flex: 1 }} />
-        <Segment<SkillView>
-          value={current}
-          onChange={setCurrent}
-          options={[
-            { label: '列表', value: 'list' },
-            { label: '卡片', value: 'card' },
-          ]}
-        />
-      </div>
-      <div style={{ marginTop: 'var(--sp-4)' }}>
-        {current === 'card' ? (
-          <div className="skill-grid">
-            {items.map((item) => (
-              <SkillCard key={item.id} item={item} onAction={onAction} onTag={onTag} />
-            ))}
-          </div>
-        ) : (
-          <div className="skill-list">
-            {items.map((item) => (
-              <SkillListRow key={item.id} item={item} onToggle={onToggle} onAction={onAction} onTag={onTag} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const entities = items.map((item) => skillToEntity(item, { onToggle, onAction, onTag, onOpen }));
+  return <EntityList items={entities} title={title} toolbar={toolbar} mode={mode} empty={empty} />;
 }

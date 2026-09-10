@@ -11,7 +11,7 @@ export type DiagStatus = 'ok' | 'warn' | 'error';
 
 export type DiagDimension =
   | 'agent' | 'sync' | 'dup' | 'durability'
-  | 'config' | 'repo' | 'project' | 'tags';
+  | 'config' | 'repo' | 'project';
 
 export interface DiagItem {
   key: string;
@@ -29,7 +29,6 @@ export interface DiagGroups {
   config: DiagItem[];
   repo: DiagItem[];
   project: DiagItem[];
-  tags: DiagItem[];
 }
 
 export interface DiagSummary { total: number; ok: number; warn: number; error: number }
@@ -47,13 +46,11 @@ interface Deps {
   desired: Map<string, Skill>;
 }
 
-const DIMS: DiagDimension[] = ['agent', 'sync', 'dup', 'durability', 'config', 'repo', 'project', 'tags'];
+const DIMS: DiagDimension[] = ['agent', 'sync', 'dup', 'durability', 'config', 'repo', 'project'];
 
-const MARKETPLACE_REL = '.claude-plugin/marketplace.json';
-
-/** 纯只读体检，覆盖 8 维度：config/repo/project/agent/sync/durability/dup/tags */
+/** 纯只读体检，覆盖 7 维度：config/repo/project/agent/sync/durability/dup */
 export function diagnose(cfg: ConfigStore, deps: Deps): DiagnoseResult {
-  const groups: DiagGroups = { agent: [], sync: [], dup: [], durability: [], config: [], repo: [], project: [], tags: [] };
+  const groups: DiagGroups = { agent: [], sync: [], dup: [], durability: [], config: [], repo: [], project: [] };
   const items: DiagItem[] = [];
 
   // ---- config 配置解析 ----
@@ -152,26 +149,6 @@ export function diagnose(cfg: ConfigStore, deps: Deps): DiagnoseResult {
     groups.dup.push({ key: `dup:${name}`, status: 'warn', message: `${name} 有 ${arr.length} 个来源待收编`, detail: arr });
   }
   if (dupCount === 0) groups.dup.push({ key: 'dup', status: 'ok', message: '无同名多来源' });
-
-  // ---- tags 标签来源可用性 ----
-  for (const r of cfg.data.repos) {
-    if (!r.tags) {
-      groups.tags.push({ key: `tags:${r.id}`, status: 'warn', message: `${r.id}: 标签未配置来源（仅存本地 config）` });
-      continue;
-    }
-    const m = r.tags.mode;
-    if (m === 'auto') { groups.tags.push({ key: `tags:${r.id}`, status: 'ok', message: `${r.id}: 自动检测标签来源` }); continue; }
-    if (m === 'frontmatter') { groups.tags.push({ key: `tags:${r.id}`, status: 'ok', message: `${r.id}: 以 SKILL.md frontmatter 为标签基准` }); continue; }
-    const base = r.root || r.path;
-    let f: string | undefined;
-    if (m === 'repo-file') f = r.tags.file ? (path.isAbsolute(r.tags.file) ? r.tags.file : path.join(r.path, r.tags.file)) : path.join(base, MARKETPLACE_REL);
-    else f = r.tags.file; // external-file
-    if (!f || !fs.existsSync(expandTilde(f))) {
-      groups.tags.push({ key: `tags:${r.id}`, status: 'error', message: `${r.id}: 标签载体文件缺失${f ? ': ' + f : ''}` });
-    } else {
-      groups.tags.push({ key: `tags:${r.id}`, status: 'ok', message: `${r.id}: 标签载体${m === 'repo-file' ? '（仓库内）' : '（仓库外）'}文件可用` });
-    }
-  }
 
   // ---- 扁平化 ----
   for (const d of DIMS) for (const it of groups[d]) items.push(it);

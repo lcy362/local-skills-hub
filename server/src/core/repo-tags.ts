@@ -1,144 +1,17 @@
 /**
- * 仓库标签来源：
- * - auto:         检测仓库是否自带标签载体（frontmatter tags / .claude-plugin/marketplace.json），检测到即沿用其方式；否则视为无自带（空标签）
- * - frontmatter:  从每个 skill 的 SKILL.md frontmatter tags 维护
- * - repo-file:    仓库内单独标签文件维护（默认 .claude-plugin/marketplace.json，Claude Plugin 结构：plugins[].keywords；也可由 user 指定路径）
- * - external-file:仓库外单独标签文件维护（user 指定绝对路径，同样采用 Claude Plugin 的 plugins/keywords 结构）
- *
- * 约定：设定了来源的仓库，标签“以所选来源为唯一基准”，读写都作用于该载体。
+ * 技能标签：以 SKILL.md frontmatter `tags` 为单一真实来源（TG-01），
+ * 用户对未写入 frontmatter 的技能所做的标签修改暂存于 config.skillMeta。
+ * 本模块仅保留 frontmatter 的写回与迁移能力。
  */
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import * as YAML from 'yaml';
 import { ConfigStore } from '../config/store.js';
-import { Repo, TagsMode } from '../config/types.js';
-import { parseSkillMeta, readSkill, SKILL_FILE } from './skill.js';
+import { Repo } from '../config/types.js';
+import { SKILL_FILE } from './skill.js';
 import { scanAll } from './scanner.js';
 
-/** 仓库默认的 Claude 生态标签载体 */
-const MARKETPLACE_REL = '.claude-plugin/marketplace.json';
-
-function isJson(file: string): boolean {
-  return /\.(ya?ml)$/i.test(file) ? false : /\.json$/i.test(file) || !/\.(ya?ml)$/i.test(file) && !file.includes('.');
-}
-
-/** 读取映射 { skillName: [tags] } 支持的载体 */
-function readTagMap(file: string): Record<string, string[]> | null {
-  if (!fs.existsSync(file)) return null;
-  try {
-    const raw = fs.readFileSync(file, 'utf-8');
-    const data = isJson(file) ? JSON.parse(raw) : YAML.parse(raw);
-    if (data && typeof data === 'object' && !Array.isArray(data)) {
-      const out: Record<string, string[]> = {};
-      for (const [k, v] of Object.entries(data)) out[k] = Array.isArray(v) ? v.map(String) : [];
-      return out;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-
-function writeTagMap(file: string, map: Record<string, string[]>) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const body = isJson(file) ? JSON.stringify(map, null, 2) : YAML.stringify(map);
-  fs.writeFileSync(file, body, 'utf-8');
-}
-
-/** 从 marketplace.json 读取 skill → keywords 映射（额外收集 unknown 标签） */
-function readMarketplace(file: string): Record<string, string[]> {
-  if (!fs.existsSync(file)) return {};
-  try {
-    const data = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    const plugins: any[] = Array.isArray(data?.plugins) ? data.plugins : [];
-    const map: Record<string, string[]> = {};
-    for (const p of plugins) if (p?.name) map[p.name] = Array.isArray(p.keywords) ? p.keywords.map(String) : [];
-    // 兼容顶层 { skillName: [tags] } 形式
-    if (Object.keys(map).length === 0) return readTagMap(file) ?? {};
-    return map;
-  } catch { return readTagMap(file) ?? {}; }
-}
-
-function writeMarketplace(file: string, skillName: string, tags: string[]) {
-  let data: any;
-  try { data = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { data = {}; }
-  let plugins: any[] = Array.isArray(data?.plugins) ? data.plugins : [];
-  const hit = plugins.find((p) => p?.name === skillName);
-  if (hit) hit.keywords = tags;
-  else plugins.push({ name: skillName, keywords: tags });
-  data.plugins = plugins;
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf-8');
-}
-
-/** 以 Claude 生态方式写回（JSON→marketplace plugins[].keywords；YAML→skill→tags 映射） */
-function writeClaudeStyle(file: string, skillName: string, tags: string[]) {
-  if (isJson(file)) {
-    writeMarketplace(file, skillName, tags);
-  } else {
-    const map = readTagMap(file) ?? {}; map[skillName] = tags; writeTagMap(file, map);
-  }
-}
-
-/** 该仓库的标签载体解析出的 { skillName: [tags] }（含 frontmatter 探测）；统一用 readMarketplace 以兼容 Claude plugins 结构 */
-function resolveMap(repo: Repo, name: string, dir: string): Record<string, string[]> | null {
-  const m = repo.tags?.mode;
-  const base = repo.root || repo.path;
-  if (m === 'repo-file') {
-    const f = repo.tags?.file ? (path.isAbsolute(repo.tags.file) ? repo.tags.file : path.join(repo.path, repo.tags.file)) : path.join(base, MARKETPLACE_REL);
-    return readMarketplace(f);
-  }
-  if (m === 'external-file') {
-    return repo.tags?.file ? readMarketplace(repo.tags.file) : {};
-  }
-  // frontmatter/auto 的 frontmatter 分支
-  return { [name]: readSkill(dir)?.tags ?? [] };
-}
-
-/** auto 检测：返回该仓库采用的默认来源模式；无法判定自带标签时返回 undefined */
-export function detectAutoMode(repo: Repo, maybeSkills: { name: string; dir: string }[], skillCount: number): TagsMode | undefined {
-  const base = repo.root || repo.path;
-  if (repo.tags?.file) return 'repo-file';
-  if (fs.existsSync(path.join(base, MARKETPLACE_REL))) return 'repo-file';
-  if (skillCount > 0 && maybeSkills.some((s) => (readSkill(s.dir)?.tags ?? []).length > 0)) return 'frontmatter';
-  return undefined;
-}
-
-/** 按仓库来源读取某个 skill 的标签（以所选来源为唯一基准） */
-export function readTags(repo: Repo, name: string, dir: string): string[] {
-  const m = repo.tags?.mode ?? 'auto';
-  if (m === 'auto') {
-    const found = detectAutoMode(repo, [{ name, dir }], 1);
-    if (found == null) return [];
-    if (found === 'repo-file') {
-      const base = repo.root || repo.path;
-      return readMarketplace(path.join(base, MARKETPLACE_REL))[name] ?? [];
-    }
-    return readSkill(dir)?.tags ?? [];
-  }
-  if (m === 'frontmatter') return readSkill(dir)?.tags ?? [];
-  return (resolveMap(repo, name, dir) ?? {})[name] ?? [];
-}
-
-/** 把标签写回所选来源（frontmatter / 仓库内 / 仓库外载体）；frontmatter 写回失败返回 false */
-export function writeTags(repo: Repo, name: string, dir: string, tags: string[]): boolean {
-  const m = repo.tags?.mode ?? 'auto';
-  const resolved = (m === 'auto') ? detectAutoMode(repo, [{ name, dir }], 1) : m;
-  if (resolved == null) return false;
-  if (resolved === 'frontmatter') return writeFrontmatterTags(path.join(dir, SKILL_FILE), tags);
-  const base = repo.root || repo.path;
-  if (resolved === 'repo-file') {
-    const f = repo.tags?.file ? (path.isAbsolute(repo.tags.file) ? repo.tags.file : path.join(repo.path, repo.tags.file)) : path.join(base, MARKETPLACE_REL);
-    writeClaudeStyle(f, name, tags);
-    return true;
-  }
-  if (resolved === 'external-file') {
-    if (!repo.tags?.file) return false;
-    writeClaudeStyle(repo.tags.file, name, tags);
-    return true;
-  }
-  return false;
-}
-
-/** 更新 SKILL.md frontmatter 的 tags（顶层 tags，保留其他字段与正文） */
+/** 更新 SKILL.md frontmatter 的 tags（保留其他字段与正文），成功返回 true */
 function writeFrontmatterTags(file: string, tags: string[]): boolean {
   if (!fs.existsSync(file)) return false;
   try {
@@ -154,26 +27,24 @@ function writeFrontmatterTags(file: string, tags: string[]): boolean {
 }
 
 /**
- * 把某个自有仓库的标签迁移为「SKILL.md frontmatter」基准（PRD 流程三-A：自有→frontmatter）。
- * 仅当仓库尚未配置 tags 载体时执行；已有 skillMeta 标签会写回 frontmatter 后删除该 config 记录，避免数据丢失。
+ * 把 config.skillMeta 中暂存的标签写回 SKILL.md frontmatter（PRD 流程三-A）。
+ * 写回成功后删除对应 config 记录，避免数据重复。
  */
 export function migrateTagsToFrontmatter(cfg: ConfigStore, repo: Repo): { migrated: number; skipped: string[] } {
-  if (repo.tags) return { migrated: 0, skipped: ['已配置标签载体，无需迁移'] };
   const skipped: string[] = [];
   let migrated = 0;
-  let lib: { skills: { id: string; name: string; dir: string; tags: string[] }[] } = { skills: [] };
+  let lib: { skills: { id: string; name: string; dir: string }[] } = { skills: [] };
   try { lib = scanAll([repo], []); } catch { /* ignore */ }
   for (const s of lib.skills) {
-    const tags = cfg.data.skillMeta[s.id]?.tags ?? s.tags;
-    const ok = writeTags({ ...repo, tags: { mode: 'frontmatter' } }, s.name, s.dir, tags);
-    if (ok) {
-      if (cfg.data.skillMeta[s.id]) delete cfg.data.skillMeta[s.id];
+    const tags = cfg.data.skillMeta[s.id]?.tags;
+    if (!tags) continue;
+    if (writeFrontmatterTags(path.join(s.dir, SKILL_FILE), tags)) {
+      delete cfg.data.skillMeta[s.id];
       migrated++;
     } else {
       skipped.push(s.name);
     }
   }
-  repo.tags = { mode: 'frontmatter' };
   cfg.save();
   return { migrated, skipped };
 }

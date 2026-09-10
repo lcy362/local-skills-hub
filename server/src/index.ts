@@ -23,9 +23,11 @@ const onChange = () => resync();
 
 app.use('/api', makeRouter(cfg, {
   // 结构性变更（新增/删除仓库、导入 skill、收编、改 preset/标签/活跃集）后自动同步活跃 agent，无需点「立即同步」；
-  // 同时重建 watcher 以纳入变化后的仓库 roots，保证后续文件级改动也能被监听。
+  // watcher 仅在用户显式开启且存在复制模式 agent 时才会真正启动（PRD §8.4）。
   onChanged: () => { resync(); watcher.start(cfg, onChange); },
+  onConfigChanged: () => watcher.start(cfg, onChange),
 }));
+// 启动时也需判断开关，默认关闭
 watcher.start(cfg, onChange);
 
 app.listen(PORT, () => {

@@ -2,11 +2,11 @@ import type { Tab } from '../../state/store';
 
 const ITEMS: { key: Tab; label: string; icon: string }[] = [
   { key: 'library', label: '技能库', icon: '◈' },
-  { key: 'agents', label: 'Agents', icon: '◉' },
+  { key: 'agents', label: '智能体', icon: '◉' },
   { key: 'presets', label: '预设', icon: '□' },
-  { key: 'sources', label: '来源', icon: '◈' },
-  { key: 'projects', label: 'Projects', icon: '❐' },
+  { key: 'projects', label: '项目', icon: '❐' },
   { key: 'health', label: '诊断', icon: '◎' },
+  { key: 'settings', label: '设置', icon: '⚙' },
 ];
 
 export default function NavRail({

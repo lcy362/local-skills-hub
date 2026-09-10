@@ -8,7 +8,7 @@ import { expandTilde } from './agents.js';
  * 扫描一个根目录下的 skill。
  * flat: 直接子目录含 SKILL.md 即 skill
  * nested: 递归查找含 SKILL.md 的目录
- * auto: 子孙一层优先，若无则递归
+ * auto: 自动检测（先按 flat，无结果再递归）
  */
 export function scanDir(root: string, source: string, layout: Layout): Skill[] {
   const children = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }).map((d) => d.name) : [];
@@ -59,17 +59,81 @@ export function detectLayoutAbs(absPath: string): { layout: 'flat' | 'nested'; c
   return { layout: 'flat', count: 0, root: skillsChild };
 }
 
+/** 解析布局：auto 在扫描期自动检测（SR-04） */
+export function resolveLayout(root: string, layout: Layout): 'flat' | 'nested' {
+  if (layout !== 'auto') return layout;
+  if (!fs.existsSync(root)) return 'flat';
+  return detectLayoutAbs(root).layout;
+}
+
+/* ---------- 带索引清单的库（EK-01 第三类结构） ---------- */
+
+interface CatalogEntry { name: string; dir?: string }
+
+/**
+ * 读取「带索引清单」的 skill 库（如 ume-skills 的 skill-store/candidate-catalog.json）。
+ * 清单仅用于补充元数据与定位本体；本体仍以 SKILL.md 为准，缺失者不计入。
+ */
+export function readCatalog(root: string, source: string): Skill[] {
+  const candidates = [
+    path.join(root, 'candidate-catalog.json'),
+    path.join(root, 'skill-store', 'candidate-catalog.json'),
+    path.join(root, 'catalog.json'),
+  ];
+  const out: Skill[] = [];
+  for (const f of candidates) {
+    if (!fs.existsSync(f)) continue;
+    let raw: unknown;
+    try { raw = JSON.parse(fs.readFileSync(f, 'utf-8')); } catch { continue; }
+    const list: unknown = Array.isArray(raw)
+      ? raw
+      : typeof raw === 'object' && raw !== null
+        ? ((raw as Record<string, unknown>).skills ?? (raw as Record<string, unknown>).candidates ?? [])
+        : [];
+    if (!Array.isArray(list)) continue;
+    const entries: CatalogEntry[] = [];
+    for (const it of list) {
+      if (typeof it === 'string') { entries.push({ name: it }); continue; }
+      if (typeof it !== 'object' || it === null) continue;
+      const o = it as Record<string, unknown>;
+      const name = typeof o.name === 'string' ? o.name : typeof o.id === 'string' ? o.id : '';
+      if (!name) continue;
+      const rel = typeof o.path === 'string' ? o.path : typeof o.dir === 'string' ? o.dir : '';
+      entries.push({ name, dir: rel || undefined });
+    }
+    for (const e of entries) {
+      const dir = e.dir
+        ? path.isAbsolute(e.dir) ? e.dir : path.join(root, e.dir)
+        : path.join(root, e.name);
+      if (!hasSkill(dir)) continue;
+      const s = readSkill(dir)!!;
+      s.source = source;
+      s.id = `${s.name}@${source}`;
+      out.push(s);
+    }
+    break; // 命中首个可用清单即可
+  }
+  return out;
+}
+
+/** 扫描一个源目录：清单优先（有则补），再按布局扫描本体，按 id 去重 */
+function scanRoot(root: string, source: string, layout: Layout): Skill[] {
+  if (!fs.existsSync(root)) return [];
+  const byId = new Map<string, Skill>();
+  for (const s of readCatalog(root, source)) byId.set(s.id, s);
+  const resolved = resolveLayout(root, layout);
+  for (const s of scanDir(root, source, resolved)) byId.set(s.id, s);
+  return [...byId.values()];
+}
+
 export function scanRepo(repo: Repo): { source: string; path: string; skills: Skill[] } {
-  const root = repo.root ?? path.join(expandTilde(repo.path), 'skills');
-  return { source: repo.id, path: root, skills: scanDir(root, repo.id, repo.layout) };
+  const root = repo.root ? expandTilde(repo.root) : path.join(expandTilde(repo.path), 'skills');
+  return { source: repo.id, path: root, skills: scanRoot(root, repo.id, repo.layout) };
 }
 
 export function scanForeign(src: ForeignSource): { source: string; path: string; skills: Skill[] } {
   const root = expandTilde(src.path);
-  const skills = fs.existsSync(root)
-    ? scanDir(root, `ext:${src.id}`, src.layout)
-    : [];
-  return { source: src.id, path: root, skills };
+  return { source: src.id, path: root, skills: scanRoot(root, src.id, src.layout) };
 }
 
 /** 聚合所有仓库与外部来源的 skill */
@@ -81,7 +145,7 @@ export function scanAll(repos: Repo[], sources: ForeignSource[]) {
   }
   for (const s of sources) {
     const res = scanForeign(s);
-    bySource.set(`ext:${s.id}`, { path: res.path, skills: res.skills });
+    bySource.set(res.source, { path: res.path, skills: res.skills });
   }
   const skills = [...bySource.values()].flatMap((x) => x.skills);
   return { bySource, skills };

@@ -1,5 +1,5 @@
 /* 轻量全局状态：当前 tab、全局 reload 总线、主题 */
-export type Tab = 'library' | 'agents' | 'presets' | 'sources' | 'projects' | 'health';
+export type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health' | 'settings';
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -13,14 +13,6 @@ export function subscribe(l: Listener): () => void {
 /** 触发全局 reload，各视图自行监听并刷新数据 */
 export function emitReload(): void {
   listeners.forEach((l) => l());
-}
-
-/** 已 onboard 状态（本地记忆，用于启动分派） */
-export function getOnboarded(): boolean {
-  return localStorage.getItem('lsh-onboarded') === '1';
-}
-export function setOnboarded(v: boolean): void {
-  localStorage.setItem('lsh-onboarded', v ? '1' : '0');
 }
 
 /** 主题记忆（App 使用） */

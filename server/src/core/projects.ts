@@ -3,28 +3,19 @@ import path from 'node:path';
 import { ConfigStore } from '../config/store.js';
 import { Skill } from './skill.js';
 import { readSkill } from './skill.js';
-import { listAgents, resolveProjectDir } from './agents.js';
+import { effectiveTags } from './tags.js';
+import { listAgents, resolveProjectDir, findAgentDef } from './agents.js';
+import { expandTilde } from './agents.js';
 import { ProjectLink } from '../config/types.js';
 
 /** 项目技能目录的清单文件名（目录 = INDEX.md，被管理/已安装的 skill 登记于此） */
 export const INDEX_NAME = 'INDEX.md';
 
-/** 读取 .agents/skills/INDEX.md 中登记（托管）的 skill 名。返回空集表示尚无目录文件 */
-export function readIndexSkillNames(agentsRoot: string): Set<string> {
-  const f = path.join(agentsRoot, INDEX_NAME);
-  if (!fs.existsSync(f)) return new Set();
-  const names = new Set<string>();
-  // 兼容两种写法：`[title](<name>/SKILL.md)` 链接 或 `- name` 平铺
-  const link = /\]\(\s*([^()\s/]+)\/?SKILL\.md\s*\)/;
-  const bare = /^\s*[-*]\s*`?([a-zA-Z0-9._-]+)`?\s*$/;
-  for (const line of fs.readFileSync(f, 'utf-8').split('\n')) {
-    const m = line.match(link) ?? line.match(bare);
-    if (m && !/^\s*#/.test(line)) names.add(m[1].trim());
-  }
-  return names;
-}
-
-/** 依据当前被管理的 skill 重建 .agents/skills/INDEX.md（纯目录清单，不含标题，不包含本程序相关信息） */
+/**
+ * 依据当前被管理的 skill 重建 .agents/skills/INDEX.md。
+ * 注意：INDEX.md 是**同步产物**（给人/git 看的目录清单），绝不参与期望集推导——
+ * 期望集只能由 config（标签 + explicit）推导，避免形成第二事实源（PRD C1/C2）。
+ */
 export function writeIndex(agentsRoot: string, managed: { name: string; title?: string; description?: string }[]): void {
   fs.mkdirSync(agentsRoot, { recursive: true });
   const lines: string[] = [];
@@ -37,9 +28,9 @@ export function writeIndex(agentsRoot: string, managed: { name: string; title?: 
 }
 
 /**
- * 项目的期望集：
- *  标签命中 ∪ 逐个开启 ∪ INDEX.md 登记成员 − 逐个关闭
- *  INDEX.md 是项目的实际目录：其中登记的 skill 视为本项目托管，不因标签缺失而被删/被清。
+ * 项目的期望集（PJ-01）：
+ *  标签命中 ∪ 逐个开启 − 逐个关闭
+ * 纯由 config 推导，与文件落地解耦。
  */
 /** explicit 记录可能是完整 id(name@来源) 或裸技能名，两者都视为命中（与 agent 期望解析对齐） */
 function idOrName(set: Set<string>, s: Skill): boolean {
@@ -50,22 +41,15 @@ export function projectedSkills(cfg: ConfigStore, proj: ProjectLink, allSkills: 
   const tagSet = new Set(proj.tags);
   const on = new Set(proj.explicitOn ?? []);
   const off = new Set(proj.explicitOff ?? []);
-  const byName = new Map(allSkills.map((s) => [s.name, s] as const));
   const out: Skill[] = [];
   const seen = new Set<string>();
   const add = (s: Skill) => { if (!seen.has(s.name)) { seen.add(s.name); out.push(s); } };
   for (const s of allSkills) {
-    const tags = cfg.data.skillMeta[s.id]?.tags ?? [];
+    const tags = effectiveTags(cfg.data, s);
     const inTag = tagSet.size > 0 && tags.some((t) => tagSet.has(t));
     if (!(inTag || idOrName(on, s))) continue;
     if (idOrName(off, s)) continue;
     add(s);
-  }
-  const root = path.join(proj.path, '.agents', 'skills');
-  for (const n of readIndexSkillNames(root)) {
-    if (seen.has(n)) continue;
-    const s = byName.get(n);
-    if (s && !idOrName(off, s)) add(s);
   }
   return out;
 }
@@ -79,8 +63,8 @@ export interface ProjectSkillRow {
   wanted: boolean;
   present: boolean;
   store: 'copy' | 'pending' | 'own';
-  /** 来源原因：标签命中 / 逐个开启 / INDEX 托管 / 自带 */
-  reason: 'tag' | 'manual' | 'index' | 'own';
+  /** 来源原因：标签命中 / 逐个开启 / 自带 */
+  reason: 'tag' | 'manual' | 'own';
   /** 标签命中但被逐个关闭 */
   offOverride?: boolean;
   /** 关闭该技能时应走哪个叠加集：'off'=加入 explicitOff（标签命中成员）；'on'=移出 explicitOn */
@@ -98,30 +82,28 @@ export function projectSkillRows(cfg: ConfigStore, proj: ProjectLink, allSkills:
   const presentIsLink = new Map<string, boolean>();
   if (fs.existsSync(agentsRoot)) {
     for (const e of fs.readdirSync(agentsRoot, { withFileTypes: true })) {
+      if (e.name === INDEX_NAME) continue; // 内部清单，不视为技能
       presentNames.add(e.name);
       presentIsLink.set(e.name, e.isSymbolicLink());
     }
   }
   const rows: ProjectSkillRow[] = [];
   const desired = projectedSkills(cfg, proj, allSkills);
-  const indexedNames = new Set(readIndexSkillNames(agentsRoot));
   const desiredNames = new Set(desired.map((s) => s.name));
 
   // 1) 期望集行
   for (const s of desired) {
-    const inTag = (cfg.data.skillMeta[s.id]?.tags ?? [])
-      .some((t) => (proj.tags ?? []).includes(t));
+    const inTag = effectiveTags(cfg.data, s).some((t) => (proj.tags ?? []).includes(t));
     const inOn = onIds.has(s.id) || onIds.has(s.name);
-    const inIndex = indexedNames.has(s.name);
     const present = presentNames.has(s.name) && !presentIsLink.get(s.name);
     const off = offIds.has(s.id) || offIds.has(s.name);
     rows.push({
       skillId: s.id, name: s.name, title: s.name, description: s.description,
       source: 'managed', wanted: true, present,
       store: present ? 'copy' : 'pending',
-      reason: inOn ? 'manual' : inIndex ? 'index' : 'tag',
-      offOverride: (inTag || inIndex) && off ? true : undefined,
-      disableVia: (inTag || inIndex) ? 'off' : 'on',
+      reason: inOn ? 'manual' : 'tag',
+      offOverride: inTag && off ? true : undefined,
+      disableVia: inTag ? 'off' : 'on',
       repo: s.source,
       dir: present ? path.join(agentsRoot, s.name) : undefined,
     });
@@ -130,7 +112,6 @@ export function projectSkillRows(cfg: ConfigStore, proj: ProjectLink, allSkills:
   // 2) 目录中存在但不在期望集（残留 / 自带）
   for (const name of presentNames) {
     if (desiredNames.has(name)) continue;
-    if (name === INDEX_NAME) continue; // 内部清单，不视为技能
     const isLink = presentIsLink.get(name) ?? false;
     if (isLink) continue; // 软链不视作项目内技能，略过
     const p = path.join(agentsRoot, name);
@@ -177,7 +158,9 @@ export function linkableAgents(cfg: ConfigStore) {
 
 /** 某 agent 的项目技能目录 */
 function agentLinkDir(cfg: ConfigStore, a: { key: string }, projectPath: string): string | undefined {
-  return resolveProjectDir(listAgents(cfg.data).find((x) => x.key === a.key)!, projectPath, cfg.data.agents[a.key]?.projectDir);
+  const def = findAgentDef(cfg.data, a.key);
+  if (!def) return undefined;
+  return resolveProjectDir(def, projectPath, cfg.data.agents[a.key]?.projectDir);
 }
 
 /** 判断 p 是否为指向 target 的目录软链（.agents/skills 即"已投放"，为该 agent 的实际目录结构） */
@@ -233,8 +216,8 @@ export function ensureAgentLinks(cfg: ConfigStore, projectPath: string, wanted?:
 
 /**
  * 项目级同步：
- * 1) 把项目期望集（标签匹配 ∪ 逐个开启 − 逐个关闭）的 skill 本体复制到 <project>/.agents/skills
- * 2) 让项目投放的 agent 的项目技能目录软链到 .agents（共享同一份副本；投放状态即实际目录结构，不存配置）
+ * 1) 把项目期望集（标签匹配 ∪ 逐个开启 − 逐个关闭）的 skill 本体复制到 <project>/.agents/skills（PJ-02）
+ * 2) 让项目投放的 agent 的项目技能目录软链到 .agents（PJ-03：一套本体、多 Agent 共享）
  */
 export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Skill[], wantedAgents?: Set<string>): ProjectSyncResult {
   const res: ProjectSyncResult = { project: projectPath, copied: [], removed: [], agentLinks: [], errors: [] };
@@ -249,9 +232,7 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   for (const s of desired) {
     seen.add(s.name);
     const dest = path.join(agentsRoot, s.name);
-    const isSame = fs.existsSync(dest)
-      && fs.readdirSync(dest).length > 0;
-    // 简单判定：目标不存在或是软链(旧误链)则刷新；正文一致时跳过
+    // 目标已是真实目录（非软链）则视为已落地，保持幂等
     if (fs.existsSync(dest) && !fs.lstatSync(dest).isSymbolicLink()) continue;
     if (fs.existsSync(dest)) fs.rmSync(dest, { recursive: true, force: true });
     try {
@@ -262,7 +243,7 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
 
   // 清理 .agents 里已不在期望集的受管目录（仅 dir，不删软链）
   for (const entry of fs.readdirSync(agentsRoot)) {
-    if (seen.has(entry)) continue;
+    if (seen.has(entry) || entry === INDEX_NAME) continue;
     const p = path.join(agentsRoot, entry);
     try {
       if (fs.lstatSync(p).isDirectory() && !fs.lstatSync(p).isSymbolicLink()) {
@@ -276,14 +257,67 @@ export function syncProject(cfg: ConfigStore, projectPath: string, allSkills: Sk
   const created = ensureAgentLinks(cfg, projectPath, wantedAgents);
   for (const key of created) res.agentLinks.push({ agent: key, created: [...seen] });
 
-  // 重建 INDEX.md：登记此刻本项目托管/已安装的 skill（目录随实际状态保持一致）
-  const managed: { name: string; title?: string; description?: string }[] = [];
-  for (const s of desired) {
-    if (fs.existsSync(path.join(agentsRoot, s.name, 'SKILL.md'))) {
-      managed.push({ name: s.name, title: s.name, description: s.description });
+  // 重建 INDEX.md（纯产物，供人/git 查阅；不参与期望集推导）
+  const managed = desired
+    .filter((s) => fs.existsSync(path.join(agentsRoot, s.name, 'SKILL.md')))
+    .map((s) => ({ name: s.name, title: s.name, description: s.description }));
+  writeIndex(agentsRoot, managed);
+  return res;
+}
+
+export interface ProjectPushResult {
+  project: string;
+  repo: string;
+  pushed: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+/**
+ * 回写仓库（PJ-05）：把项目 .agents/skills 中（被团队改动过的）skill 反向写回仓库本体。
+ * 只覆盖仓库中同名 skill 的本体；仓库中没有该 skill 时按 opts.onlyExisting 决定是否新增。
+ */
+export function pushProjectToRepo(
+  cfg: ConfigStore,
+  projectPath: string,
+  repoId?: string,
+  names?: string[]
+): ProjectPushResult {
+  const proj = cfg.data.projects.find((p) => path.resolve(p.path) === path.resolve(projectPath));
+  const agentsRoot = path.join(path.resolve(projectPath), '.agents', 'skills');
+  const repo = cfg.data.repos.find((r) => r.id === repoId) ?? cfg.data.repos[0];
+  const res: ProjectPushResult = {
+    project: path.resolve(projectPath),
+    repo: repo?.id ?? '',
+    pushed: [], skipped: [], errors: [],
+  };
+  if (!proj) { res.errors.push('项目未登记'); return res; }
+  if (!repo) { res.errors.push('无仓库可回写'); return res; }
+  if (!fs.existsSync(agentsRoot)) { res.errors.push('项目尚无 .agents/skills'); return res; }
+
+  const skillsRoot = repo.root ? expandTilde(repo.root) : path.join(expandTilde(repo.path), 'skills');
+  fs.mkdirSync(skillsRoot, { recursive: true });
+  const want = names && names.length ? new Set(names) : undefined;
+
+  for (const entry of fs.readdirSync(agentsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === INDEX_NAME) continue;
+    const src = path.join(agentsRoot, entry.name);
+    if (!fs.existsSync(path.join(src, 'SKILL.md'))) continue;
+    if (want && !want.has(entry.name)) continue;
+    const dest = path.join(skillsRoot, entry.name);
+    if (!fs.existsSync(dest)) {
+      res.skipped.push(`${entry.name}(仓库中无同名 skill，未回写)`);
+      continue;
+    }
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+      fs.cpSync(src, dest, { recursive: true });
+      res.pushed.push(entry.name);
+    } catch (e) {
+      res.errors.push(`${entry.name}: ${(e as Error).message}`);
     }
   }
-  writeIndex(agentsRoot, managed);
+  cfg.save();
   return res;
 }
 

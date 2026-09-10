@@ -2,82 +2,79 @@ import type { SkillCardView, SkillReason, SkillStore } from '../../api/types';
 import Badge from '../ui/Badge';
 
 const REASON_LABEL: Record<SkillReason, string> = {
-  own: '自建',
-  preset: '预设',
-  manual: '手动',
-  tag: '标签',
-  index: '索引',
+  own: '未收编',
+  preset: '预设引入',
+  manual: '',
 };
 
-const STORE_LABEL: Record<SkillStore, string> = {
-  symlink: '符号链接',
-  copy: '副本',
-  own: '自建',
-  pending: '待定',
+const REASON_TITLE: Record<SkillReason, string> = {
+  own: '存在于当前 Agent/项目目录、但尚未纳入统一仓库管理，可执行「收编到仓库」',
+  preset: '由预设组引入',
+  manual: '由用户手动加入',
 };
+
+const STORE_LABEL: Partial<Record<SkillStore, string>> = {
+  symlink: '软链引用',
+  copy: '副本',
+};
+
+const STORE_TITLE: Partial<Record<SkillStore, string>> = {
+  symlink: '通过软链接引用仓库中的共享副本，不复制文件',
+  copy: '仓库中保存了一份独立副本',
+};
+
+export { REASON_LABEL, STORE_LABEL };
 
 export function isOn(item: SkillCardView): boolean {
-  return item.state === 'on' || item.state === 'own-in-use' || item.state === 'wanted-pending';
+  return item.state === 'on' || item.state === 'own-in-use';
 }
 
 export function reasonBadge(item: SkillCardView) {
-  return <Badge tone="accent">{REASON_LABEL[item.reason]}</Badge>;
+  const label = REASON_LABEL[item.reason];
+  if (!label) return null; // manual 不再作为明显的来源标志展示
+  return <Badge tone="accent" title={REASON_TITLE[item.reason]}>{label}</Badge>;
 }
 
 export function storeBadge(item: SkillCardView) {
-  return <Badge tone="info">{STORE_LABEL[item.store]}</Badge>;
+  const label = STORE_LABEL[item.store];
+  if (!label) return null; // own/pending 不展示，避免「自建/待待部署」这类含义不明徽标
+  return <Badge tone="info" title={STORE_TITLE[item.store]}>{label}</Badge>;
 }
 
 export function stateBadge(item: SkillCardView) {
   switch (item.state) {
     case 'on':
       return (
-        <Badge tone="good" dot="good">
+        <Badge tone="good" dot="good" title="已启用，Agent/项目正在使用">
           启用
-        </Badge>
-      );
-    case 'wanted-pending':
-      return (
-        <Badge tone="warn" dot="warn">
-          待生成
-        </Badge>
-      );
-    case 'off-override':
-      return (
-        <Badge tone="warn" dot="warn">
-          已关闭
-        </Badge>
-      );
-    case 'residual':
-      return (
-        <Badge tone="bad" dot="bad">
-          残留
         </Badge>
       );
     case 'own-in-use':
       return (
-        <Badge tone="info" dot="good">
+        <Badge tone="info" dot="good" title="由本地目录自维护并使用">
           使用中
         </Badge>
       );
     case 'off':
     default:
       return (
-        <Badge tone="neutral" dot="neutral">
+        <Badge tone="neutral" dot="neutral" title="此技能当前未启用">
           未启用
         </Badge>
       );
   }
 }
 
-/** 统一渲染 reason / store / state 三个状态徽标 */
-export default function SkillBadges({ item }: { item: SkillCardView }) {
+/**
+ * 统一渲染 reason / store / preset 三个徽标（卡片与列表行共用）。
+ * 不含 state —— 状态由 EntityItem.status 单独展示在卡片右上角 / 行右侧。
+ */
+export function skillBadges(item: SkillCardView) {
   return (
-    <span className="skill-card__badges">
+    <>
       {reasonBadge(item)}
       {storeBadge(item)}
-      {stateBadge(item)}
       {item.preset && <Badge tone="accent">{item.preset}</Badge>}
-    </span>
+    </>
   );
 }

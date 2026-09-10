@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-'));
 process.env.SKILLS_HUB_CONFIG = path.join(base, 'config.json');
@@ -30,7 +29,7 @@ cfg.foreignSources.push({ id: 'ume', name: 'ume-skills', path: extDir, layout: '
 
 // 活跃 agent 目标目录（用覆盖指到临时目录，避免污染真实 ~/.trae-cn）
 const targetDir = path.join(base, 'agent-tmp');
-cfg.agents['trae-cn'] = { globalDir: targetDir, sync: 'symlink' };
+cfg.agents['trae_cn'] = { globalDir: targetDir, sync: 'symlink' };
 store.save();
 
 const lib = scanAll(cfg.repos, cfg.foreignSources);
@@ -40,7 +39,7 @@ const alpha = lib.skills.find((s) => s.name === 'alpha');
 presets.create(store, 'demo');
 presets.update(store, 'demo', { skills: [alpha.id] });
 presets.setActive(store, 'demo', true);
-active.set(store, ['trae-cn']);
+active.set(store, ['trae_cn']);
 
 // 直接调同步引擎（不经过 HTTP）
 const results = syncActive(store, lib.skills);
@@ -58,19 +57,21 @@ console.log(isLink && fs.readdirSync(link).includes('SKILL.md') ? '✅ 最小闭
   const groups = previewGroups(store, lib2);
   console.log('\n[integrate] 候选分组 =', groups.map((g) => `${g.name}(${g.candidates.map((c) => c.source).join(',')})`).join(' ; '));
   const res = applyAdoption(store, lib2, [
-    { name: 'gamma', selectId: 'gamma#ext:ume' },
+    { name: 'gamma', selectId: 'gamma#ume' },
   ]);
   console.log('[integrate] 收编 =', JSON.stringify(res, null, 2));
   const adopted = path.join(repoDir, 'skills', 'gamma');
   console.log('收编后仓库含 gamma =', fs.existsSync(path.join(adopted, 'SKILL.md')));
+  console.log('来源追溯 =', store.data.skillMeta['gamma@default']?.origin);
 }
 
 // ---- 批次2: 项目级 skill smoke ----
+let projBase = '';
 {
   const { addProject, syncProject } = await import('./src/core/projects.js');
-  const projBase = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-proj-'));
+  projBase = fs.mkdtempSync(path.join(os.tmpdir(), 'hub-proj-'));
   addProject(store, projBase, ['frontend']);
-  // 给 gamma 打 frontend 标签（gamma 已在仓库内）
+  // 给 alpha 打 frontend 标签
   store.data.skillMeta['alpha@default'] = { tags: ['frontend'] };
   store.save();
   const lib3 = scanAll(store.data.repos, store.data.foreignSources);
@@ -78,11 +79,19 @@ console.log(isLink && fs.readdirSync(link).includes('SKILL.md') ? '✅ 最小闭
   console.log('\n[project] .agents 复制 =', res.copied, '| agent项目目录软链 =', res.agentLinks.map((x) => `${x.agent}`).join(','));
   const ag = path.join(projBase, '.agents', 'skills');
   console.log('.agents 内容 =', fs.existsSync(ag) ? fs.readdirSync(ag) : 'none');
-  // 校验某 agent 项目目录软链
-  const traeLink = path.join(projBase, '.trae', 'skills');
-  console.log('.trae/skills 内容 =', fs.existsSync(traeLink) ? fs.readdirSync(traeLink).map((n) => `${n}(link=${fs.lstatSync(path.join(traeLink, n)).isSymbolicLink()})`) : 'none');
   if (fs.existsSync(ag) && fs.readdirSync(ag).includes('alpha')) console.log('✅ 项目级同步通过');
   else console.log('❌ 项目级同步失败');
+}
+
+// ---- 批次2.5: 回写仓库 smoke（PJ-05）----
+{
+  const { pushProjectToRepo } = await import('./src/core/projects.js');
+  // 模拟团队成员改动项目内 skill
+  fs.writeFileSync(path.join(projBase, '.agents', 'skills', 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: 团队改动版\n---\n正文');
+  const push = pushProjectToRepo(store, projBase, 'default');
+  console.log('\n[push] 回写 =', JSON.stringify(push, null, 2));
+  const back = fs.readFileSync(path.join(repoDir, 'skills', 'alpha', 'SKILL.md'), 'utf-8');
+  console.log(back.includes('团队改动版') ? '✅ 回写仓库通过' : '❌ 回写仓库失败');
 }
 
 // ---- 批次3: 批量导入 + 诊断 smoke ----
@@ -94,7 +103,22 @@ console.log(isLink && fs.readdirSync(link).includes('SKILL.md') ? '✅ 最小闭
   const imp = importDirs(store, [ext2Dir], 'default');
   console.log('\n[import] =', JSON.stringify(imp, null, 2));
   const { diagnose } = await import('./src/core/diagnose.js');
-  const diag = diagnose(store);
+  const lib4 = scanAll(store.data.repos, store.data.foreignSources);
+  const { collectCandidates } = await import('./src/core/integrate.js');
+  const { computeDesired } = await import('./src/core/sync.js');
+  const diag = diagnose(store, { lib: lib4, candidates: collectCandidates(store, lib4), desired: computeDesired(store, lib4.skills) });
   console.log('[diagnose] 项数 =', diag.items.length, '| config =', diag.config);
   console.log('仓库含新技能 echarts =', fs.existsSync(path.join(repoDir, 'skills', 'echarts', 'SKILL.md')));
+}
+
+// ---- 批次4: preset 关联标签 smoke（PR-05）----
+{
+  store.data.skillMeta['echarts@default'] = { tags: ['viz'] };
+  presets.update(store, 'demo', { tags: ['viz'] });
+  store.save();
+  const lib5 = scanAll(store.data.repos, store.data.foreignSources);
+  const { desiredNamesFor } = await import('./src/core/sync.js');
+  const names = [...desiredNamesFor(store, lib5.skills, 'trae_cn')];
+  console.log('\n[preset-tags] 期望集 =', names.sort());
+  console.log(names.includes('echarts') ? '✅ preset 标签命中通过' : '❌ preset 标签未生效');
 }

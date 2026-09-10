@@ -1,14 +1,17 @@
-import type { SkillCardView } from '../../api/types';
+import type { SkillAction, SkillCardView } from '../../api/types';
 
-/** SkillView（手机库技能）→ 统一展示 SkillCardView */
-export function skillViewToCard(s: {
-  id: string;
-  name: string;
-  source: string;
-  dir: string;
-  description?: string;
-  tags: string[];
-}): SkillCardView {
+/** SkillView（资产库技能）→ 统一展示 SkillCardView */
+export function skillViewToCard(
+  s: {
+    id: string;
+    name: string;
+    source: string;
+    dir: string;
+    description?: string;
+    tags: string[];
+  },
+  actions: SkillAction[] = []
+): SkillCardView {
   return {
     id: s.id,
     name: s.name,
@@ -17,9 +20,9 @@ export function skillViewToCard(s: {
     dir: s.dir,
     description: s.description,
     tags: s.tags ?? [],
-    reason: 'index',
+    reason: 'manual',
     store: 'own',
     state: 'on',
-    actions: [{ kind: 'noop', label: '编辑标签' }],
+    actions,
   };
 }

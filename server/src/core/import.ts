@@ -50,6 +50,10 @@ export function importDirs(cfg: ConfigStore, sourceDirs: string[], repoId?: stri
       if (fs.existsSync(dest)) { res.skipped.push(`${s.name}(已存在，去重跳过)`); continue; }
       try {
         fs.cpSync(s.dir, dest, { recursive: true });
+        // 来源追溯（IM-04）
+        const meta = cfg.data.skillMeta[`${s.name}@${repo.id}`] ?? { tags: [] };
+        meta.origin = abs;
+        cfg.data.skillMeta[`${s.name}@${repo.id}`] = meta;
         res.imported.push(s.name);
       } catch (e) { res.skipped.push(`${s.name}(${(e as Error).message})`); }
     }
@@ -57,4 +61,34 @@ export function importDirs(cfg: ConfigStore, sourceDirs: string[], repoId?: stri
   }
   cfg.save();
   return out;
+}
+
+/**
+ * 收编第三方库（EK-03）：把「只读关联」的外部 skill 库拷贝进仓库本体并接管后续版本。
+ * 收编后该来源标记 linked=false，本体由仓库持有；同名 skill 去重跳过。
+ */
+export function adoptSource(cfg: ConfigStore, sourceId: string, repoId?: string): { repo: string; imported: string[]; skipped: string[] } {
+  const src = cfg.data.foreignSources.find((s) => s.id === sourceId);
+  if (!src) throw new Error(`来源不存在: ${sourceId}`);
+  const repo = cfg.data.repos.find((r) => r.id === repoId) ?? cfg.data.repos[0];
+  if (!repo) throw new Error('无仓库可收编');
+  const skillsRoot = repo.root ? expandTilde(repo.root) : path.join(expandTilde(repo.path), 'skills');
+  fs.mkdirSync(skillsRoot, { recursive: true });
+  const found = scanDir(expandTilde(src.path), src.id, src.layout);
+  const imported: string[] = [];
+  const skipped: string[] = [];
+  for (const s of found) {
+    const dest = path.join(skillsRoot, s.name);
+    if (fs.existsSync(dest)) { skipped.push(`${s.name}(已存在，去重跳过)`); continue; }
+    try {
+      fs.cpSync(s.dir, dest, { recursive: true });
+      const meta = cfg.data.skillMeta[`${s.name}@${repo.id}`] ?? { tags: [] };
+      meta.origin = src.id;
+      cfg.data.skillMeta[`${s.name}@${repo.id}`] = meta;
+      imported.push(s.name);
+    } catch (e) { skipped.push(`${s.name}(${(e as Error).message})`); }
+  }
+  src.linked = false;
+  cfg.save();
+  return { repo: repo.id, imported, skipped };
 }

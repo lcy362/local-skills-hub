@@ -9,7 +9,7 @@ export interface Candidate {
   /** 目录内唯一：name#<source> */
   id: string;
   name: string;
-  source: string;          // 仓库id / ext:xx / agent:<key> / file
+  source: string;          // 仓库id / 外部来源id / agent:<key> / file
   sourceLabel: string;
   dir: string;
   inRepo: boolean;         // 是否已是仓库本体
@@ -99,8 +99,14 @@ export function applyAdoption(cfg: ConfigStore, lib: { skills: Skill[] }, decisi
     }
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.cpSync(sel.dir, target, { recursive: true });
+    // 来源追溯（IM-04）：记录该 skill 收编自哪个 Agent / 外部目录，便于回滚与追踪
+    const skillId = `${sel.name}@${repo.id}`;
+    const meta = cfg.data.skillMeta[skillId] ?? { tags: [] };
+    meta.origin = sel.sourceLabel || sel.source;
+    cfg.data.skillMeta[skillId] = meta;
     results.push({ name: d.name, adopted: true, source: sel.source, targetDir: target });
     count++;
   }
+  cfg.save();
   return results;
 }

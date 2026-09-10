@@ -8,10 +8,16 @@ import LoadingBoundary from '../components/ui/LoadingBoundary';
 import { useAsync } from '../state/useAsync';
 import { useToast } from '../components/ui/Toast';
 
+/** 诊断 summary / 分组 键的本地化映射 */
+const KEY_LABEL: Record<string, string> = {
+  repos: '仓库', skills: '技能', agents: '智能体', presets: '预设',
+  projects: '项目', sources: '来源', sync: '同步', config: '配置',
+};
+
 /** 可一键修复的诊断项 key 判定 */
 function fixable(it: DiagItem): boolean {
   if (it.status === 'ok') return false;
-  return /^(sync:|broken:|project:|repo:|tags:|agent:)/.test(it.key);
+  return /^(sync:|broken:|project:|repo:|agent:)/.test(it.key);
 }
 
 export default function Health() {
@@ -53,7 +59,7 @@ export default function Health() {
               <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap' }}>
                 {Object.entries(diag.summary).map(([k, s]) => (
                   <div key={k} style={{ flex: 1, minWidth: 120, display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-                    <span className="field-label" style={{ textTransform: 'capitalize' }}>{k}</span>
+                    <span className="field-label">{KEY_LABEL[k] ?? k}</span>
                     <span style={{ display: 'flex', gap: 'var(--sp-2)', alignItems: 'center' }}>
                       <Badge tone="good">{s.ok}</Badge>
                       <Badge tone="warn">{s.warn}</Badge>
@@ -70,7 +76,7 @@ export default function Health() {
               Object.entries(diag.groups).map(([group, items]) => (
                 <div key={group} className="panel" style={{ padding: 0 }}>
                   <div style={{ padding: 'var(--sp-4) var(--sp-6)', borderBottom: '1px solid var(--c-line)' }}>
-                    <span className="page-head__title" style={{ fontSize: 'var(--fs-16)', textTransform: 'capitalize' }}>{group}</span>
+                    <span className="page-head__title" style={{ fontSize: 'var(--fs-16)' }}>{KEY_LABEL[group] ?? group}</span>
                     <span className="mono" style={{ color: 'var(--c-ink-3)', marginLeft: 'var(--sp-2)' }}>{items.length}</span>
                   </div>
                   {items.length === 0 && <div style={{ padding: 'var(--sp-4) var(--sp-6)' }}><EmptyState title="无异常" /></div>}

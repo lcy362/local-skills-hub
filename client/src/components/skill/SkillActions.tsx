@@ -5,19 +5,14 @@ export function actionVariant(
   kind: SkillAction['kind']
 ): 'default' | 'primary' | 'ghost' | 'danger' | 'warn' {
   switch (kind) {
-    case 'enable':
     case 'collect':
       return 'primary';
-    case 'disable':
-    case 'clean':
-      return 'warn';
     case 'delete':
       return 'danger';
     case 'merge':
-      return 'default';
     case 'toggle':
       return 'default';
-    case 'noop':
+    case 'detail':
       return 'ghost';
     default:
       return 'default';
@@ -34,7 +29,7 @@ export default function SkillActions({
 }) {
   if (!item.actions || item.actions.length === 0) return null;
   return (
-    <span className="skill-row__actions">
+    <span className="entity-row__actions">
       {item.actions.map((action, i) => (
         <Button
           key={`${action.kind}-${i}`}
