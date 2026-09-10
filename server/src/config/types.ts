@@ -1,70 +1,70 @@
-export type Layout = 'flat' | 'nested' | 'auto';
-export type SyncMode = 'symlink' | 'copy';
-
 /** 标签来源方式 */
 export type TagsMode = 'auto' | 'frontmatter' | 'repo-file' | 'external-file';
+/** 目录布局 */
+export type Layout = 'flat' | 'nested' | 'auto';
+/** 安装方式 */
+export type SyncMode = 'symlink' | 'copy';
+/** Agent 管理模式 */
+export type AgentManageMode = 'preset' | 'manual';
 
-/** 仓库标签来源配置；不配置该项时沿用旧行为（读 config.skillMeta） */
+/** 仓库标签来源配置；缺省=沿用 config.skillMeta */
 export interface RepoTags {
   mode: TagsMode;
   /** repo-file: 仓库内相对/绝对标签文件；external-file: 仓库外绝对路径 */
   file?: string;
 }
 
+/** 个人 skill 资产库仓库 */
 export interface Repo {
   id: string;
   path: string;
-  /** 真实 skills 根目录，默认 <path>/skills；导入现有目录时指向其本体 */
+  /** 真实 skills 根目录，缺省 <path>/skills */
   root?: string;
   layout: Layout;
-  /** 可选：标签来源配置 */
   tags?: RepoTags;
 }
 
+/** 第三方 skill 库（开放内容库） */
 export interface ForeignSource {
   id: string;
   name: string;
   path: string;
   layout: Layout;
-  /** true=只读关联(不拷贝本体), false=已收编(拷贝进仓库) */
+  /** true=只读关联（不拷贝本体）；false=已收编（拷贝进仓库） */
   linked: boolean;
+  /** 两套标签体系各自的启用开关：仓库自带(frontmatter) 与 hub 管理(仓库内/外文件) */
+  tagSystems?: { upstream?: boolean; hub?: boolean };
 }
-
-export type AgentManageMode = 'preset' | 'manual';
 
 export interface AgentOverride {
   globalDir?: string;
   projectDir?: string;
   sync?: SyncMode;
-  /** 技能管理模式；缺省 = 'manual'（手动挑选） */
   mode?: AgentManageMode;
-  /** mode=preset 时的基准套餐名；缺省则跟随全局激活 presets */
   preset?: string;
-  /** 显式开启的 skill id（name@来源）：manual=全部依赖此；preset=基准之上额外开启 */
   explicitOn?: string[];
-  /** 显式关闭的 skill id（仅 preset 模式下在基准之上裁剪某些成员） */
   explicitOff?: string[];
 }
 
 export interface Preset {
   name: string;
-  skills: string[];   // name@来源
+  /** skill id（name@来源） */
+  skills: string[];
   tags: string[];
   active?: boolean;
 }
 
 export interface SkillMeta {
   tags: string[];
-  source?: string;
+  /** 合并仲裁后保留来源（POST /skills/merge 记录归属） */
+  mergeSource?: string;
 }
 
 export interface ProjectLink {
   path: string;
-  /** 标签：决定默认投放哪些 skill（依标签命中）。是"投放策略"，非目录快照。 */
+  /** 标签=投放策略 */
   tags: string[];
-  /** 项目内逐个开启的 skill id（name@来源）：在标签命中之外显式补入 */
   explicitOn?: string[];
-  /** 项目内逐个关闭的 skill id：从期望集里裁剪（仅标签命中成员可按此关闭） */
   explicitOff?: string[];
 }
 
@@ -78,10 +78,12 @@ export interface HubConfig {
   skillMeta: Record<string, SkillMeta>;
   projects: ProjectLink[];
   defaultSync: SyncMode;
+  /** 首启向导是否已完成 */
+  onboarded?: boolean;
 }
 
 export const emptyConfig = (): HubConfig => ({
-  schemaVersion: 1,
+  schemaVersion: 2,
   repos: [],
   foreignSources: [],
   agents: {},
@@ -90,4 +92,5 @@ export const emptyConfig = (): HubConfig => ({
   skillMeta: {},
   projects: [],
   defaultSync: 'symlink',
+  onboarded: false,
 });

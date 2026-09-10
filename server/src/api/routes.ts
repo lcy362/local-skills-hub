@@ -2,7 +2,8 @@ import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
-import { ConfigStore } from '../config/store.js';
+import { ConfigStore } from '../infra/config-store.js';
+import { pickDirectory, pickFile } from '../infra/picker.js';
 import { listAgents, agentSkillRows, findBuiltin, resolveGlobalDir } from '../core/agents.js';
 import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
@@ -14,13 +15,14 @@ import { importDirs, previewImportDirs } from '../core/import.js';
 import { previewCollect, collectAgentSkill } from '../core/collect.js';
 import { readTags, writeTags } from '../core/repo-tags.js';
 import { diagnose } from '../core/diagnose.js';
-import { pickDirectory, pickFile } from '../core/picker.js';
 import { Repo, ForeignSource } from '../config/types.js';
+import { agentCards, projectCards } from '../domain/cards.js';
+import { getOnboardState, importAsRepo, collectOnboard, mergeSkill } from '../domain/onboarding.js';
 
 export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }): Router {
   const r = Router();
   r.use(express.json({ limit: '2mb' }));
-  // 结构性变更后自动同步活跃 agent（无需点「立即同步」），由入口注入实现
+  // 结构性变更后自动同步活跃 agent，由入口注入实现
   const touch = () => opts?.onChanged?.();
 
   const library = () => scanAll(cfg.data.repos, cfg.data.foreignSources);
@@ -30,7 +32,6 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const repoOf = (src: string) => cfg.data.repos.find((x) => x.id === src);
     const skills = lib.skills.map((s) => {
       const repo = repoOf(s.source);
-      // 有显式标签来源配置的仓库：以所选来源为唯一基准；否则兼容旧行为读 config.skillMeta
       const tags = repo?.tags ? readTags(repo, s.name, s.dir) : cfg.data.skillMeta[s.id]?.tags ?? s.tags;
       return {
         id: s.id, name: s.name, source: s.source, dir: s.dir,
@@ -38,7 +39,51 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
         tags,
       };
     });
-    res.json({ activeAgents: cfg.data.activeAgents, skills, presets: cfg.data.presets });
+    res.json({
+      onboarded: cfg.data.onboarded ?? false,
+      activeAgents: cfg.data.activeAgents,
+      skills,
+      presets: cfg.data.presets,
+      repos: cfg.data.repos,
+      sources: cfg.data.foreignSources,
+    });
+  });
+
+  // ---- onboarding 首启引导 ----
+  r.get('/onboarding', (_req, res) => res.json(getOnboardState(cfg)));
+  r.post('/onboarding/import', (req, res) => {
+    const { path: p, agent } = req.body ?? {};
+    if (!p) return res.status(400).json({ error: 'path required' });
+    try {
+      const result = importAsRepo(cfg, String(p), agent);
+      touch();
+      res.json(result);
+    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  });
+  r.post('/onboarding/collect', (req, res) => {
+    const { repoId, decisions, agent } = req.body ?? {};
+    // 兼容两种调用：{decisions}（明细）或 {agent}（整 agent 归集）
+    const decs = Array.isArray(decisions)
+      ? decisions
+      : agent
+        ? [{ agent, name: '' }]
+        : [];
+    const rid = repoId ?? cfg.data.repos[0]?.id;
+    if (!rid) return res.status(400).json({ error: 'repoId required' });
+    try {
+      const result = collectOnboard(cfg, String(rid), decs);
+      touch();
+      res.json(result);
+    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  });
+  r.post('/skills/merge', (req, res) => {
+    const { name, keepSource } = req.body ?? {};
+    if (!name || !keepSource) return res.status(400).json({ error: 'name/keepSource required' });
+    try {
+      const result = mergeSkill(cfg, library().skills, String(name), String(keepSource));
+      touch();
+      res.json(result);
+    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
 
   // ---- filesystem ----
@@ -130,18 +175,29 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const key = req.params.key;
     const over = cfg.data.agents[key] ?? {};
     const body = req.body ?? {};
-    const { sync, globalDir } = body;
+    const { sync, globalDir, projectDir } = body;
     if (sync) over.sync = sync;
     if (globalDir) over.globalDir = globalDir;
+    if (projectDir) over.projectDir = projectDir;
     if ('mode' in body && body.mode) over.mode = body.mode;
     if ('preset' in body) { if (body.preset) over.preset = body.preset; else delete over.preset; }
+    // 兼容前端 `skill + on` 语义：开启→显式开启列表；关闭→按情况写入停用列表或移出开启列表
+    if ('skill' in body && typeof body.skill === 'string') {
+      const name = body.skill;
+      const on = body.on !== false;
+      const onSet = new Set(over.explicitOn ?? []);
+      const offSet = new Set(over.explicitOff ?? []);
+      if (on) { onSet.add(name); offSet.delete(name); }
+      else { onSet.delete(name); offSet.add(name); }
+      over.explicitOn = onSet.size ? [...onSet] : undefined;
+      over.explicitOff = offSet.size ? [...offSet] : undefined;
+    }
     const setList = (field: 'explicitOn' | 'explicitOff') => {
       if (field in body) { const list = Array.isArray(body[field]) ? body[field] : []; if (list.length) over[field] = list; else delete over[field]; }
     };
     setList('explicitOn'); setList('explicitOff');
     cfg.data.agents[key] = over;
     cfg.save();
-    // 管理模式相关变更：若该 agent 活跃则自动同步，否则等用户主动同步
     if (cfg.data.activeAgents.includes(key)) touch();
     res.json(cfg.data.agents[key]);
   });
@@ -150,20 +206,18 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const lib = library();
     const ctx = desiredContext(cfg, lib.skills, key);
     const rows = agentSkillRows(key, cfg.data, lib.skills, ctx);
-    // 可添加候选：资产库里尚未加入本 agent（不在显式开启，也不在期望集，也未物理存在）的技能
     const present = new Set(rows.filter((x) => x.present).map((x) => x.name));
     const inDesired = new Set(rows.filter((x) => x.wanted).map((x) => x.name));
     const addable = lib.skills
       .filter((s) => !inDesired.has(s.name) && !present.has(s.name) && !ctx.onNames.has(s.name))
       .map((s) => ({ id: s.id, name: s.name, repo: s.source }));
-    res.json({ skills: rows, addable, active: cfg.data.activeAgents.includes(key) });
+    res.json({ skills: agentCards(rows), addable, active: cfg.data.activeAgents.includes(key) });
   });
   r.post('/agents/:key/sync', (req, res) => {
     const key = req.params.key;
     const r_ = syncActive(cfg, library().skills, [key]);
     res.json(r_[0] ?? { agent: key, created: [], removed: [], failed: [] });
   });
-  // 删除 agent 技能目录中的某个技能（自带 or 残留 managed）：必须是「非期望」才可删
   r.delete('/agents/:key/skills/:skillName', (req, res) => {
     const key = req.params.key;
     const name = req.params.skillName;
@@ -191,16 +245,13 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const id = decodeURIComponent(req.params.id);
     if (!Array.isArray(req.body?.tags)) return res.status(400).json({ error: 'tags required' });
     const tags = req.body.tags;
-    // name@source 拆出：source 可能是仓库 id
     const at = id.lastIndexOf('@');
     const source = at >= 0 ? id.slice(at + 1) : '';
     const repo = cfg.data.repos.find((x) => x.id === source);
-    // 显式标签来源的仓库：写回所选来源载体（以来源为唯一基准）
     if (repo?.tags) {
       const lib = library();
       const skill = lib.skills.find((s) => s.id === id);
       if (skill && writeTags(repo, skill.name, skill.dir, tags)) { touch(); return res.json({ tags, via: 'source' }); }
-      // 载体写回失败（如 SKILL.md 无 frontmatter）→ 回退 config 覆盖
     }
     const meta = cfg.data.skillMeta[id] ?? { tags: [] };
     meta.tags = tags;
@@ -213,13 +264,20 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
   // ---- presets ----
   r.get('/presets', (_req, res) => res.json(cfg.data.presets));
   r.post('/presets', (req, res) => {
-    try { res.json(presets.create(cfg, String(req.body?.name))); }
-    catch (e) { res.status(400).json({ error: (e as Error).message }); }
+    try {
+      const name = String(req.body?.name ?? '').trim();
+      if (!name) return res.status(400).json({ error: 'name required' });
+      const p = presets.create(cfg, name);
+      // 兼容前端一次传入 skills/active
+      if (Array.isArray(req.body?.skills)) p.skills = req.body.skills;
+      if (typeof req.body?.active === 'boolean') p.active = req.body.active;
+      cfg.save();
+      res.json(p);
+    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
   r.put('/presets/:name', (req, res) => {
     try {
       const p = presets.update(cfg, req.params.name, req.body ?? {});
-      // 预设变更 → 触发式同步（仅活跃 agent）
       const lib = library();
       syncActive(cfg, lib.skills);
       res.json(p);
@@ -255,12 +313,11 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
 
   // ---- projects (项目级 skill) ----
   r.get('/projects', (_req, res) => {
-    res.json(cfg.data.projects.map((p) => ({ ...p, agents: deployedAgents(cfg, p.path), hasAgents: fs.existsSync(path.join(p.path, '.agents', 'skills')) })));
+    res.json(cfg.data.projects.map((p, i) => ({ ...p, id: i, agents: deployedAgents(cfg, p.path), hasAgents: fs.existsSync(path.join(p.path, '.agents', 'skills')) })));
   });
   r.post('/projects', (req, res) => {
     try {
       const p = addProject(cfg, String(req.body?.path), Array.isArray(req.body?.tags) ? req.body.tags : []);
-      // 立即同步：生成 .agents/skills，并按所选 agent（调起时勾选的投放对象）建立软链
       const wanted = Array.isArray(req.body?.agents) ? new Set<string>(req.body.agents as string[]) : undefined;
       syncProject(cfg, p, library().skills, wanted);
       res.json(cfg.data.projects);
@@ -272,29 +329,38 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     if (!proj) return res.status(404).json({ error: 'project not found' });
     if (Array.isArray(req.body?.tags)) proj.tags = req.body.tags;
     cfg.save();
-    const syncResult = syncProject(cfg, proj.path, library().skills); // 标签变化 → 立即重投（沿用当前已投放 agent）
+    const syncResult = syncProject(cfg, proj.path, library().skills);
     res.json({ ...proj, agents: deployedAgents(cfg, proj.path), sync: syncResult });
   });
   r.put('/projects/:id/agents', (req, res) => {
     const id = Number(req.params.id);
     const proj = cfg.data.projects[id];
     if (!proj) return res.status(404).json({ error: 'project not found' });
-    // 建立/撤除软链即"投放状态"本身，以实际目录结构为唯一事实，不写入配置
     const syncResult = syncProject(cfg, proj.path, library().skills, new Set<string>(Array.isArray(req.body?.agents) ? req.body.agents : []));
     res.json({ ...proj, agents: deployedAgents(cfg, proj.path), sync: syncResult });
   });
-  // 项目技能列表（与 agent 技能管理对齐）+ 逐个开关覆盖
   r.get('/projects/:id/skills', (req, res) => {
     const id = Number(req.params.id);
     const proj = cfg.data.projects[id];
     if (!proj) return res.status(404).json({ error: 'project not found' });
     const lib = library();
-    res.json({ skills: projectSkillRows(cfg, proj, lib.skills), addable: projectAddable(cfg, proj, lib.skills) });
+    res.json({ skills: projectCards(projectSkillRows(cfg, proj, lib.skills)), addable: projectAddable(cfg, proj, lib.skills) });
   });
   r.put('/projects/:id/skills', (req, res) => {
     const id = Number(req.params.id);
     const proj = cfg.data.projects[id];
     if (!proj) return res.status(404).json({ error: 'project not found' });
+    // 兼容前端 `skill + on` 语义
+    if ('skill' in (req.body ?? {}) && typeof req.body.skill === 'string') {
+      const name = req.body.skill;
+      const on = req.body.on !== false;
+      const onSet = new Set(proj.explicitOn ?? []);
+      const offSet = new Set(proj.explicitOff ?? []);
+      if (on) { onSet.add(name); offSet.delete(name); }
+      else { onSet.delete(name); offSet.add(name); }
+      proj.explicitOn = onSet.size ? [...onSet] : undefined;
+      proj.explicitOff = offSet.size ? [...offSet] : undefined;
+    }
     const setList = (field: 'explicitOn' | 'explicitOff') => {
       if (field in (req.body ?? {})) {
         const list = Array.isArray(req.body[field]) ? req.body[field] : [];
@@ -304,7 +370,7 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     setList('explicitOn'); setList('explicitOff');
     cfg.save();
     const lib = library();
-    const result = syncProject(cfg, proj.path, lib.skills); // 立即让 .agents 反映覆盖后的期望集
+    const result = syncProject(cfg, proj.path, lib.skills);
     res.json({ ...result });
   });
   r.post('/projects/:id/sync', (req, res) => {
@@ -319,11 +385,18 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
 
   // ---- batch import / diagnose ----
   r.post('/import/preview', (req, res) => {
-    const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : [];
+    // 兼容 {dirs:[]} 与 {path} / ?path=
+    const dirs = Array.isArray(req.body?.dirs)
+      ? req.body.dirs
+      : req.body?.path
+        ? [req.body.path]
+        : req.query?.path
+          ? [String(req.query.path)]
+          : [];
     res.json(previewImportDirs(dirs));
   });
   r.post('/import', (req, res) => {
-    const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : [];
+    const dirs = Array.isArray(req.body?.dirs) ? req.body.dirs : req.body?.path ? [req.body.path] : [];
     const repoId = req.body?.repoId;
     const result = importDirs(cfg, dirs, repoId);
     touch();

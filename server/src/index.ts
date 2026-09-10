@@ -1,5 +1,5 @@
 import express from 'express';
-import { ConfigStore } from './config/store.js';
+import { ConfigStore } from './infra/config-store.js';
 import { makeRouter } from './api/routes.js';
 import { CONFIG_PATH } from './config/defaults.js';
 import { CopyWatcher } from './core/watcher.js';

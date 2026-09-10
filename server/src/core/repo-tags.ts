@@ -10,8 +10,8 @@
 import fs from 'fs';
 import path from 'path';
 import * as YAML from 'yaml';
-import { Repo, TagsMode } from '../config/types';
-import { parseSkillMeta, readSkill, SKILL_FILE } from './skill';
+import { Repo, TagsMode } from '../config/types.js';
+import { parseSkillMeta, readSkill, SKILL_FILE } from './skill.js';
 
 /** 仓库默认的 Claude 生态标签载体 */
 const MARKETPLACE_REL = '.claude-plugin/marketplace.json';
