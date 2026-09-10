@@ -4,6 +4,7 @@ const ITEMS: { key: Tab; label: string; icon: string }[] = [
   { key: 'library', label: '技能库', icon: '◈' },
   { key: 'agents', label: 'Agents', icon: '◉' },
   { key: 'presets', label: '预设', icon: '□' },
+  { key: 'sources', label: '来源', icon: '◈' },
   { key: 'projects', label: 'Projects', icon: '❐' },
   { key: 'health', label: '诊断', icon: '◎' },
 ];

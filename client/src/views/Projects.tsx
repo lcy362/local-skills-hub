@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { api, type ProjectSkillsResp, type SkillCardView, type AddableSkill } from '../api/types';
+import { api, type ProjectSkillsResp, type SkillCardView, type AddableSkill, type AgentView } from '../api/types';
 import SkillList from '../components/skill/SkillList';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
+import Switch from '../components/ui/Switch';
 import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
@@ -15,6 +16,7 @@ interface ProjectItem {
   id: string;
   path: string;
   tags: string[];
+  agents?: string[];
 }
 
 export default function Projects() {
@@ -103,17 +105,26 @@ function ProjectDetail({ project, onBack }: { project: ProjectItem; onBack: () =
     () => api(`/projects/${encodeURIComponent(project.id)}/skills`),
     [project.id]
   );
+  const { data: agentData, reload: reloadAgents } = useAsync<AgentView[]>(() => api('/agents'));
   const [addOpen, setAddOpen] = useState(false);
+  const deployed = project.agents ?? [];
 
   const busy = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
       toast.push('已更新', 'good');
       reload();
+      reloadAgents();
     } catch (e) {
       toast.push(e instanceof Error ? e.message : String(e), 'bad');
     }
   };
+
+  const toggleDeploy = (key: string, on: boolean) =>
+    void busy(async () => {
+      const next = on ? [...deployed, key] : deployed.filter((k) => k !== key);
+      await api(`/projects/${encodeURIComponent(project.id)}/agents`, { method: 'PUT', body: JSON.stringify({ agents: next }) });
+    });
 
   const handleAction = (item: SkillCardView) =>
     void busy(() =>
@@ -137,6 +148,34 @@ function ProjectDetail({ project, onBack }: { project: ProjectItem; onBack: () =
             同步
           </Button>
         </div>
+      </div>
+
+      <div className="panel">
+        <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>
+          投放 Agent
+        </div>
+        {(agentData ?? []).length === 0 ? (
+          <span style={{ color: 'var(--c-ink-3)', fontSize: 'var(--fs-13)' }}>暂无已登记的 Agent。</span>
+        ) : (
+          <div className="skill-list">
+            {(agentData ?? []).map((a) => (
+              <div key={a.key} className="skill-row">
+                <div className="skill-row__main">
+                  <div className="skill-row__title">{a.name}</div>
+                  <div className="skill-row__sub mono">{a.key}</div>
+                </div>
+                <div className="skill-row__right">
+                  {deployed.includes(a.key) && <Badge tone="good">已投放</Badge>}
+                  <Switch
+                    aria-label={`投放 ${a.name}`}
+                    checked={deployed.includes(a.key)}
+                    onChange={(v) => toggleDeploy(a.key, v)}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <LoadingBoundary state={{ loading, error, data }} empty={{ title: '该项目暂无技能', icon: '○' }}>

@@ -1,5 +1,5 @@
 /* 轻量全局状态：当前 tab、全局 reload 总线、主题 */
-export type Tab = 'library' | 'agents' | 'presets' | 'projects' | 'health';
+export type Tab = 'library' | 'agents' | 'presets' | 'sources' | 'projects' | 'health';
 
 type Listener = () => void;
 const listeners = new Set<Listener>();

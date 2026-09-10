@@ -10,8 +10,10 @@
 import fs from 'fs';
 import path from 'path';
 import * as YAML from 'yaml';
+import { ConfigStore } from '../config/store.js';
 import { Repo, TagsMode } from '../config/types.js';
 import { parseSkillMeta, readSkill, SKILL_FILE } from './skill.js';
+import { scanAll } from './scanner.js';
 
 /** 仓库默认的 Claude 生态标签载体 */
 const MARKETPLACE_REL = '.claude-plugin/marketplace.json';
@@ -149,4 +151,29 @@ function writeFrontmatterTags(file: string, tags: string[]): boolean {
     fs.writeFileSync(file, `---\n${YAML.stringify(y).trimRight()}\n---\n${body}`, 'utf-8');
     return true;
   } catch { return false; }
+}
+
+/**
+ * 把某个自有仓库的标签迁移为「SKILL.md frontmatter」基准（PRD 流程三-A：自有→frontmatter）。
+ * 仅当仓库尚未配置 tags 载体时执行；已有 skillMeta 标签会写回 frontmatter 后删除该 config 记录，避免数据丢失。
+ */
+export function migrateTagsToFrontmatter(cfg: ConfigStore, repo: Repo): { migrated: number; skipped: string[] } {
+  if (repo.tags) return { migrated: 0, skipped: ['已配置标签载体，无需迁移'] };
+  const skipped: string[] = [];
+  let migrated = 0;
+  let lib: { skills: { id: string; name: string; dir: string; tags: string[] }[] } = { skills: [] };
+  try { lib = scanAll([repo], []); } catch { /* ignore */ }
+  for (const s of lib.skills) {
+    const tags = cfg.data.skillMeta[s.id]?.tags ?? s.tags;
+    const ok = writeTags({ ...repo, tags: { mode: 'frontmatter' } }, s.name, s.dir, tags);
+    if (ok) {
+      if (cfg.data.skillMeta[s.id]) delete cfg.data.skillMeta[s.id];
+      migrated++;
+    } else {
+      skipped.push(s.name);
+    }
+  }
+  repo.tags = { mode: 'frontmatter' };
+  cfg.save();
+  return { migrated, skipped };
 }

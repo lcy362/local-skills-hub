@@ -7,13 +7,24 @@ import Spinner from '../components/ui/Spinner';
 import { FieldInput } from '../components/ui/Field';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import MergePanel, { type MergeGroupItem } from '../components/onboarding/MergePanel';
 
 export default function Onboarding({ onDone }: { onDone: () => void }) {
   const { data: onboard, loading, error } = useAsync<OnboardState>(() => api('/onboarding'));
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [mergeGroups, setMergeGroups] = useState<MergeGroupItem[] | null>(null);
 
   const fullOnboarded = onboard && !onboard.needsSetup && onboard.step === 'done';
+
+  const openMerge = async () => {
+    try {
+      const res = await api<{ groups: MergeGroupItem[] }>('/integrate/preview');
+      setMergeGroups(res.groups);
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : String(e), 'bad');
+    }
+  };
 
   return (
     <>
@@ -33,7 +44,17 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
           </div>
         </div>
       )}
-      {!!onboard && onboard.needsSetup && (
+      {mergeGroups && (
+        <MergePanel
+          groups={mergeGroups}
+          onDone={() => {
+            setMergeGroups(null);
+            toast.push('合并/接管完成', 'good');
+            onDone();
+          }}
+        />
+      )}
+      {!!onboard && onboard.needsSetup && !mergeGroups && (
         <>
           <div className="flow-steps">
             <FlowStep
@@ -48,7 +69,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                   try {
                     await api('/onboarding/import', { method: 'POST', body: JSON.stringify({ path }) });
                     toast.push('导入完成', 'good');
-                    onDone();
+                    await openMerge();
                   } catch (e) {
                     toast.push(e instanceof Error ? e.message : String(e), 'bad');
                   } finally {
@@ -71,7 +92,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
                   try {
                     await api('/onboarding/collect', { method: 'POST', body: JSON.stringify({ agent: key }) });
                     toast.push('归集完成', 'good');
-                    onDone();
+                    await openMerge();
                   } catch (e) {
                     toast.push(e instanceof Error ? e.message : String(e), 'bad');
                   } finally {

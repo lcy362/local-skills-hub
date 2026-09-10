@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { api, type DiagnoseResult, type DiagItem } from '../api/types';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
@@ -5,9 +6,31 @@ import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
 import { useAsync } from '../state/useAsync';
+import { useToast } from '../components/ui/Toast';
+
+/** 可一键修复的诊断项 key 判定 */
+function fixable(it: DiagItem): boolean {
+  if (it.status === 'ok') return false;
+  return /^(sync:|broken:|project:|repo:|tags:|agent:)/.test(it.key);
+}
 
 export default function Health() {
   const { data, loading, error, reload } = useAsync<DiagnoseResult>(() => api('/diagnose'));
+  const [fixing, setFixing] = useState<string | null>(null);
+  const toast = useToast();
+
+  const runFix = async (key: string) => {
+    setFixing(key);
+    try {
+      const res = await api<{ key: string; applied: boolean; message: string }>('/fix', { method: 'POST', body: JSON.stringify({ key }) });
+      toast.push(res.applied ? `已修复：${res.message}` : `无法自动修复：${res.message}`, res.applied ? 'good' : 'bad');
+      reload();
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : String(e), 'bad');
+    } finally {
+      setFixing(null);
+    }
+  };
 
   const tone = (s: DiagItem['status']) => {
     if (s === 'ok') return 'good' as const;
@@ -59,6 +82,16 @@ export default function Health() {
                         </Badge>
                         <span className="diag-row__msg">{it.message}</span>
                         {it.detail !== undefined && <span className="diag-row__detail">{String(it.detail)}</span>}
+                        {fixable(it) && (
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            loading={fixing === it.key}
+                            onClick={() => void runFix(it.key)}
+                          >
+                            修复
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>

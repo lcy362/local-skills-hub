@@ -6,6 +6,7 @@ import Onboarding from './views/Onboarding';
 import Library from './views/Library';
 import Agents from './views/Agents';
 import Presets from './views/Presets';
+import Sources from './views/Sources';
 import Projects from './views/Projects';
 import Health from './views/Health';
 import { emitReload, getStoredTheme, getOnboarded, setOnboarded, storeTheme, type Tab } from './state/store';
@@ -15,6 +16,7 @@ const TITLES: Record<Tab, { t: string; s: string }> = {
   library: { t: '技能库', s: '统一技能资产库' },
   agents: { t: 'Agents', s: 'Agent 技能管理' },
   presets: { t: '预设', s: '技能预设组' },
+  sources: { t: '来源', s: '第三方 skill 库' },
   projects: { t: 'Projects', s: '项目技能关联' },
   health: { t: '诊断', s: '健康检查与诊断' },
 };
@@ -90,6 +92,7 @@ export default function App() {
           {tab === 'library' && <Library />}
           {tab === 'agents' && <Agents />}
           {tab === 'presets' && <Presets />}
+          {tab === 'sources' && <Sources />}
           {tab === 'projects' && <Projects />}
           {tab === 'health' && <Health />}
         </main>

@@ -41,6 +41,11 @@ export function writeIndex(agentsRoot: string, managed: { name: string; title?: 
  *  标签命中 ∪ 逐个开启 ∪ INDEX.md 登记成员 − 逐个关闭
  *  INDEX.md 是项目的实际目录：其中登记的 skill 视为本项目托管，不因标签缺失而被删/被清。
  */
+/** explicit 记录可能是完整 id(name@来源) 或裸技能名，两者都视为命中（与 agent 期望解析对齐） */
+function idOrName(set: Set<string>, s: Skill): boolean {
+  return set.has(s.id) || set.has(s.name);
+}
+
 export function projectedSkills(cfg: ConfigStore, proj: ProjectLink, allSkills: Skill[]): Skill[] {
   const tagSet = new Set(proj.tags);
   const on = new Set(proj.explicitOn ?? []);
@@ -52,15 +57,15 @@ export function projectedSkills(cfg: ConfigStore, proj: ProjectLink, allSkills: 
   for (const s of allSkills) {
     const tags = cfg.data.skillMeta[s.id]?.tags ?? [];
     const inTag = tagSet.size > 0 && tags.some((t) => tagSet.has(t));
-    if (!(inTag || on.has(s.id))) continue;
-    if (off.has(s.id)) continue;
+    if (!(inTag || idOrName(on, s))) continue;
+    if (idOrName(off, s)) continue;
     add(s);
   }
   const root = path.join(proj.path, '.agents', 'skills');
   for (const n of readIndexSkillNames(root)) {
     if (seen.has(n)) continue;
     const s = byName.get(n);
-    if (s && !off.has(s.id)) add(s);
+    if (s && !idOrName(off, s)) add(s);
   }
   return out;
 }
@@ -106,10 +111,10 @@ export function projectSkillRows(cfg: ConfigStore, proj: ProjectLink, allSkills:
   for (const s of desired) {
     const inTag = (cfg.data.skillMeta[s.id]?.tags ?? [])
       .some((t) => (proj.tags ?? []).includes(t));
-    const inOn = onIds.has(s.id);
+    const inOn = onIds.has(s.id) || onIds.has(s.name);
     const inIndex = indexedNames.has(s.name);
     const present = presentNames.has(s.name) && !presentIsLink.get(s.name);
-    const off = offIds.has(s.id);
+    const off = offIds.has(s.id) || offIds.has(s.name);
     rows.push({
       skillId: s.id, name: s.name, title: s.name, description: s.description,
       source: 'managed', wanted: true, present,
@@ -125,6 +130,7 @@ export function projectSkillRows(cfg: ConfigStore, proj: ProjectLink, allSkills:
   // 2) 目录中存在但不在期望集（残留 / 自带）
   for (const name of presentNames) {
     if (desiredNames.has(name)) continue;
+    if (name === INDEX_NAME) continue; // 内部清单，不视为技能
     const isLink = presentIsLink.get(name) ?? false;
     if (isLink) continue; // 软链不视作项目内技能，略过
     const p = path.join(agentsRoot, name);
@@ -145,9 +151,15 @@ export function projectAddable(cfg: ConfigStore, proj: ProjectLink, allSkills: S
   const present = projectSkillRows(cfg, proj, allSkills).filter((r) => r.present).map((r) => r.name);
   const off = new Set(proj.explicitOff ?? []);
   const presentSet = new Set(present);
-  return allSkills
-    .filter((s) => !desired.has(s.name) && !presentSet.has(s.name) && !off.has(s.id))
-    .map((s) => ({ id: s.id, name: s.name, repo: s.source }));
+  const seen = new Set<string>();
+  const out: { id: string; name: string; repo: string }[] = [];
+  for (const s of allSkills) {
+    if (seen.has(s.name)) continue; // 同一技能跨多个来源只列一次（首见即入）
+    if (desired.has(s.name) || presentSet.has(s.name) || idOrName(off, s)) continue;
+    seen.add(s.name);
+    out.push({ id: s.id, name: s.name, repo: s.source });
+  }
+  return out;
 }
 
 export interface ProjectSyncResult {

@@ -4,7 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { ConfigStore } from '../infra/config-store.js';
 import { pickDirectory, pickFile } from '../infra/picker.js';
-import { listAgents, agentSkillRows, findBuiltin, resolveGlobalDir } from '../core/agents.js';
+import { listAgents, agentSkillRows, findBuiltin, resolveGlobalDir, expandTilde } from '../core/agents.js';
 import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
@@ -13,7 +13,10 @@ import { previewGroups, applyAdoption, collectCandidates } from '../core/integra
 import { addProject, syncProject, projectSkillRows, projectAddable, deployedAgents } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
 import { previewCollect, collectAgentSkill } from '../core/collect.js';
-import { readTags, writeTags } from '../core/repo-tags.js';
+import { readTags, writeTags, migrateTagsToFrontmatter } from '../core/repo-tags.js';
+import { takeover } from '../core/takeover.js';
+import { renameTag, mergeTag, tagConsistency } from '../core/tag-ops.js';
+import { applyFix } from '../core/fix.js';
 import { diagnose } from '../core/diagnose.js';
 import { Repo, ForeignSource } from '../config/types.js';
 import { agentCards, projectCards } from '../domain/cards.js';
@@ -27,12 +30,39 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
 
   const library = () => scanAll(cfg.data.repos, cfg.data.foreignSources);
 
+  /** 第三方库标签：honor tagSystems 开关。hub(仓库内/外文件)优先，其次 upstream(frontmatter)。默认 auto=可探测即启。 */
+  const foreignSkillTags = (f: ForeignSource, s: { tags: string[]; name: string }): string[] => {
+    const up = f.tagSystems?.upstream ?? true;
+    const hubEnabled = f.tagSystems?.hub ?? false;
+    if (hubEnabled) {
+      try {
+        const file = path.join(expandTilde(f.path), '.claude-plugin', 'marketplace.json');
+        if (!fs.existsSync(file)) return up ? s.tags : [];
+        const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        if (Array.isArray(raw?.plugins)) {
+          const hit = raw.plugins.find((p: { name?: string }) => p?.name === s.name);
+          if (hit?.keywords) return hit.keywords.map(String);
+        }
+      } catch { /* ignore */ }
+    }
+    if (up) return s.tags;
+    return [];
+  };
+
   r.get('/state', (_req, res) => {
     const lib = library();
     const repoOf = (src: string) => cfg.data.repos.find((x) => x.id === src);
     const skills = lib.skills.map((s) => {
       const repo = repoOf(s.source);
-      const tags = repo?.tags ? readTags(repo, s.name, s.dir) : cfg.data.skillMeta[s.id]?.tags ?? s.tags;
+      let tags: string[];
+      if (repo) {
+        tags = repo?.tags ? readTags(repo, s.name, s.dir) : cfg.data.skillMeta[s.id]?.tags ?? s.tags;
+      } else if (s.source.startsWith('ext:')) {
+        const f = cfg.data.foreignSources.find((x) => x.id === s.source.slice(4));
+        tags = f ? foreignSkillTags(f, s) : cfg.data.skillMeta[s.id]?.tags ?? s.tags;
+      } else {
+        tags = cfg.data.skillMeta[s.id]?.tags ?? s.tags;
+      }
       return {
         id: s.id, name: s.name, source: s.source, dir: s.dir,
         description: s.description, version: s.version,
@@ -129,6 +159,14 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     res.json(scanAll([repo], []));
   });
 
+  // 自有仓库标签迁移到 SKILL.md frontmatter（PRD 流程三-A）
+  r.post('/repos/:id/tags-migrate', (req, res) => {
+    const repo = cfg.data.repos.find((x) => x.id === req.params.id);
+    if (!repo) return res.status(404).json({ error: 'repo not found' });
+    try { res.json(migrateTagsToFrontmatter(cfg, repo)); }
+    catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+
   r.post('/repos/detect', (req, res) => {
     const { path: p } = req.body ?? {};
     if (!p) return res.status(400).json({ error: 'path required' });
@@ -151,16 +189,48 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     catch (e) { res.status(500).json({ error: String(e) }); }
   });
 
+  // 接管：把 agent 源 skill 替换为指向仓库副本的软链（源改名备份，需显式 confirm）
+  r.post('/repos/:id/takeover', (req, res) => {
+    const { agentKey, name, confirm } = req.body ?? {};
+    if (!agentKey || !name) return res.status(400).json({ error: 'agentKey/name required' });
+    res.json(takeover(cfg, String(agentKey), String(name), req.params.id, confirm === true));
+  });
+
   // ---- foreign sources ----
 
-  r.get('/sources', (_req, res) => res.json(cfg.data.foreignSources));
+  r.get('/sources', (_req, res) => {
+    // 附带两套标签体系的可探测性：upstream=frontmatter 自带；hub=仓库内 marketplace.json
+    res.json(cfg.data.foreignSources.map((f) => {
+      let upstream = false;
+      try { upstream = scanAll([], [f]).skills.some((s) => (s.tags ?? []).length > 0); } catch { /* ignore */ }
+      const hub = fs.existsSync(path.join(expandTilde(f.path), '.claude-plugin', 'marketplace.json'));
+      return { ...f, detected: { tagSystems: { upstream, hub } } };
+    }));
+  });
   r.post('/sources', (req, res) => {
     const body = req.body as ForeignSource;
     if (!body.id || !body.path) return res.status(400).json({ error: 'id/path required' });
-    cfg.data.foreignSources.push({ ...body, layout: body.layout ?? 'nested', linked: body.linked ?? true });
+    cfg.data.foreignSources.push({
+      ...body,
+      layout: body.layout ?? 'nested',
+      linked: body.linked ?? true,
+      tagSystems: body.tagSystems ?? undefined,
+    });
     cfg.save();
     touch();
     res.json(cfg.data.foreignSources);
+  });
+  r.put('/sources/:id/tags', (req, res) => {
+    const s = cfg.data.foreignSources.find((x) => x.id === req.params.id);
+    if (!s) return res.status(404).json({ error: 'source not found' });
+    const b = req.body ?? {};
+    s.tagSystems = {
+      upstream: typeof b.upstream === 'boolean' ? b.upstream : (s.tagSystems?.upstream ?? true),
+      hub: typeof b.hub === 'boolean' ? b.hub : (s.tagSystems?.hub ?? false),
+    };
+    cfg.save();
+    touch();
+    res.json(cfg.data.foreignSources.find((x) => x.id === req.params.id));
   });
   r.delete('/sources/:id', (req, res) => {
     cfg.data.foreignSources = cfg.data.foreignSources.filter((x) => x.id !== req.params.id);
@@ -208,9 +278,11 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     const rows = agentSkillRows(key, cfg.data, lib.skills, ctx);
     const present = new Set(rows.filter((x) => x.present).map((x) => x.name));
     const inDesired = new Set(rows.filter((x) => x.wanted).map((x) => x.name));
+    const seenAddable = new Set<string>();
     const addable = lib.skills
       .filter((s) => !inDesired.has(s.name) && !present.has(s.name) && !ctx.onNames.has(s.name))
-      .map((s) => ({ id: s.id, name: s.name, repo: s.source }));
+      .map((s) => ({ id: s.id, name: s.name, repo: s.source }))
+      .filter((a) => { if (seenAddable.has(a.name)) return false; seenAddable.add(a.name); return true; });
     res.json({ skills: agentCards(rows), addable, active: cfg.data.activeAgents.includes(key) });
   });
   r.post('/agents/:key/sync', (req, res) => {
@@ -259,6 +331,21 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
     cfg.save();
     touch();
     res.json(meta);
+  });
+
+  // ---- 标签元操作 ----
+  r.get('/tags/consistency', (_req, res) => res.json({ issues: tagConsistency(cfg) }));
+  r.post('/tags/rename', (req, res) => {
+    const { oldTag, newTag } = req.body ?? {};
+    if (!oldTag || !newTag) return res.status(400).json({ error: 'oldTag/newTag required' });
+    try { res.json(renameTag(cfg, String(oldTag), String(newTag))); }
+    catch (e) { res.status(400).json({ error: (e as Error).message }); }
+  });
+  r.post('/tags/merge', (req, res) => {
+    const { target, absorb } = req.body ?? {};
+    if (!target || !absorb) return res.status(400).json({ error: 'target/absorb required' });
+    try { res.json(mergeTag(cfg, String(target), String(absorb))); }
+    catch (e) { res.status(400).json({ error: (e as Error).message }); }
   });
 
   // ---- presets ----
@@ -410,6 +497,17 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void }):
         candidates: collectCandidates(cfg, lib),
         desired: computeDesired(cfg, lib.skills),
       }));
+    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+  });
+  // 就地修复：按 diagnose 项 key 分发（Health 视图调用）
+  r.post('/fix', (req, res) => {
+    const { key } = req.body ?? {};
+    if (!key) return res.status(400).json({ error: 'key required' });
+    try {
+      const lib = library();
+      const result = applyFix(cfg, { lib }, String(key));
+      touch();
+      res.json(result);
     } catch (e) { res.status(500).json({ error: (e as Error).message }); }
   });
 

@@ -21,7 +21,7 @@ interface SkillListProps {
 export default function SkillList({
   items,
   view,
-  defaultView = 'list',
+  defaultView = 'card',
   onViewChange,
   onToggle,
   onAction,
