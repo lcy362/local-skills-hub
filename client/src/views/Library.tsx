@@ -849,9 +849,12 @@ function SkillDetailModal({
 
   const save = async () => {
     if (!skill) return;
+    // 输入框中未点「添加」/未回车确认的文本，保存时一并纳入，避免「输入了却打不上」
+    const t = newTag.trim();
+    const finalTags = t && !tags.includes(t) ? [...tags, t] : tags;
     setSaving(true);
     try {
-      await api(`/skills/${encodeURIComponent(skill.id)}`, { method: 'PATCH', body: JSON.stringify({ tags }) });
+      await api(`/skills/${encodeURIComponent(skill.id)}`, { method: 'PATCH', body: JSON.stringify({ tags: finalTags }) });
       onSaved();
     } finally { setSaving(false); }
   };
