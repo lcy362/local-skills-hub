@@ -9,6 +9,7 @@ import Projects from './views/Projects';
 import Health from './views/Health';
 import Settings from './views/Settings';
 import { emitReload, getStoredTheme, storeTheme, type Tab } from './state/store';
+import { navigate, useRoute } from './state/router';
 
 const TITLES: Record<Tab, { t: string; s: string }> = {
   library: { t: '技能库', s: '统一技能资产库' },
@@ -20,7 +21,7 @@ const TITLES: Record<Tab, { t: string; s: string }> = {
 };
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('library');
+  const { tab } = useRoute();
   const [theme, setTheme] = useState<'light' | 'dark'>(getStoredTheme());
   const [reloading, setReloading] = useState(false);
   useToast();
@@ -33,6 +34,11 @@ export default function App() {
 
   const toggleTheme = () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
 
+  /** 切换一级页面：回到该页顶层，不残留上一页的详情与筛选 */
+  const selectTab = useCallback((t: Tab) => {
+    navigate({ tab: t, sub: null, query: new URLSearchParams() });
+  }, []);
+
   const reloadAll = useCallback(() => {
     setReloading(true);
     emitReload();
@@ -41,7 +47,7 @@ export default function App() {
 
   return (
     <div className="hub">
-      <NavRail active={tab} onSelect={setTab} />
+      <NavRail active={tab} onSelect={selectTab} />
       <div className="shell-main">
         <Topbar
           title={TITLES[tab].t}

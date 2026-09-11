@@ -14,6 +14,7 @@ import { FieldInput, FieldSelect } from '../components/ui/Field';
 import { PathField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { useQueryFlag, useQueryParam } from '../state/router';
 
 /**
  * 设置（UI-03）：活跃 Agent 集合、Agent 目录覆盖、仓库路径、默认同步策略、watcher 开关、自定义 Agent。
@@ -24,8 +25,9 @@ export default function Settings() {
   const { data: customs, reload: reloadCustoms } = useAsync<CustomAgentView[]>(() => api('/agents/custom'));
   const { data: activeRes, reload: reloadActive } = useAsync<string[]>(() => api('/activeAgents'));
   const toast = useToast();
-  const [q, setQ] = useState('');
-  const [onlyInstalled, setOnlyInstalled] = useState(false);
+  // 筛选条件随地址持久化，刷新后保持当前页面的查看状态
+  const [q, setQ] = useQueryParam('q');
+  const [onlyInstalled, setOnlyInstalled] = useQueryFlag('installed');
   const [addOpen, setAddOpen] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 

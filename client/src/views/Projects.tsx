@@ -14,6 +14,7 @@ import { FieldInput } from '../components/ui/Field';
 import { PathField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { navigate, useRoute } from '../state/router';
 
 interface ProjectItem {
   id: number;
@@ -25,14 +26,20 @@ interface ProjectItem {
 
 export default function Projects() {
   const { data, loading, error, reload } = useAsync<ProjectItem[]>(() => api('/projects'));
-  const [selected, setSelected] = useState<ProjectItem | null>(null);
+  const route = useRoute();
   const [createOpen, setCreateOpen] = useState(false);
+
+  // 项目详情同样是地址的一部分，刷新后仍停留在原项目
+  const selectedId = route.sub;
+  const selected = selectedId ? (data ?? []).find((p) => String(p.id) === selectedId) : null;
+  const openProject = (id: number) => navigate({ ...route, sub: String(id) });
+  const backToList = () => navigate({ ...route, sub: null });
 
   const items: EntityItem[] = (data ?? []).map((p) => ({
     id: String(p.id),
     title: p.path,
     sub: p.tags.length ? p.tags.map((t) => `#${t}`).join(' ') : '无标签',
-    onClick: () => setSelected(p),
+    onClick: () => openProject(p.id),
     actions: <span style={{ color: 'var(--c-ink-3)' }}>→</span>,
   }));
 
@@ -43,8 +50,17 @@ export default function Projects() {
         sub={data ? `共 ${data.length} 个项目` : undefined}
         actions={<Button onClick={() => setCreateOpen(true)}>新建项目</Button>}
       />
-      {selected ? (
-        <ProjectDetail project={selected} onBack={() => setSelected(null)} onChanged={reload} />
+      {selectedId ? (
+        selected ? (
+          <ProjectDetail project={selected} onBack={backToList} onChanged={reload} />
+        ) : (
+          <LoadingBoundary
+            state={{ loading, error, data }}
+            empty={{ title: '未找到该项目', hint: `没有 id 为「${selectedId}」的项目。`, icon: '❐' }}
+          >
+            {() => null}
+          </LoadingBoundary>
+        )
       ) : (
         <LoadingBoundary
           state={{ loading, error, data }}

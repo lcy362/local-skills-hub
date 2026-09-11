@@ -15,12 +15,19 @@ import { FieldInput, FieldSelect } from '../components/ui/Field';
 import { PathField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { navigate, useQueryFlag, useQueryParam, useRoute } from '../state/router';
 
 export default function Agents() {
   const { data, loading, error, reload } = useAsync<AgentView[]>(() => api('/agents'));
-  const [selected, setSelected] = useState<AgentView | null>(null);
-  const [q, setQ] = useState('');
-  const [onlyInstalled, setOnlyInstalled] = useState(false);
+  const route = useRoute();
+  const [q, setQ] = useQueryParam('q');
+  const [onlyInstalled, setOnlyInstalled] = useQueryFlag('installed');
+
+  // 详情页由地址决定：直达 / 刷新都能稳定回到同一个 Agent
+  const selectedKey = route.sub;
+  const selected = selectedKey ? (data ?? []).find((a) => a.key === selectedKey) : null;
+  const openAgent = (key: string) => navigate({ ...route, sub: key });
+  const backToList = () => navigate({ ...route, sub: null });
 
   const shown = useMemo(() => {
     const kw = q.trim().toLowerCase();
@@ -51,15 +58,24 @@ export default function Agents() {
         {!a.installed && <Badge tone="neutral">未安装</Badge>}
       </>
     ),
-    onClick: () => setSelected(a),
+    onClick: () => openAgent(a.key),
     muted: !a.active,
   }));
 
   return (
     <>
       <PageHeader title="Agents" sub={data ? `共 ${data.length} 个 Agent` : undefined} actions={<Button variant="ghost" onClick={reload}>刷新</Button>} />
-      {selected ? (
-        <AgentDetail agent={selected} onBack={() => setSelected(null)} onChanged={reload} />
+      {selectedKey ? (
+        selected ? (
+          <AgentDetail agent={selected} onBack={backToList} onChanged={reload} />
+        ) : (
+          <LoadingBoundary
+            state={{ loading, error, data }}
+            empty={{ title: '未找到该 Agent', hint: `没有 key 为「${selectedKey}」的 Agent。`, icon: '◉' }}
+          >
+            {() => null}
+          </LoadingBoundary>
+        )
       ) : (
         <>
           <div className="panel">

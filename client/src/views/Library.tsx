@@ -16,20 +16,26 @@ import SwitchLabel from '../components/ui/SwitchLabel';
 import { PathField, PathListField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { navigate, useQueryFlag, useQueryParam, useQueryValue, useRoute } from '../state/router';
 
 const DETAIL_ACTION: SkillAction[] = [{ kind: 'detail', label: '详情' }];
 
 export default function Library() {
   const { data, loading, error, reload } = useAsync<StateView>(() => api('/state'));
   const toast = useToast();
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const route = useRoute();
   const [importOpen, setImportOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [integrateOpen, setIntegrateOpen] = useState(false);
-  const [facet, setFacet] = useState<string | undefined>(undefined);
-  const [q, setQ] = useState('');
-  const [src, setSrc] = useState<string | undefined>(undefined);
-  const [untaggedOnly, setUntaggedOnly] = useState(false);
+
+  // 详情弹层与筛选条件都写进地址，刷新后可完整复原当前页面
+  const detailId = route.sub;
+  const openDetail = (id: string) => navigate({ ...route, sub: id });
+  const closeDetail = () => navigate({ ...route, sub: null });
+  const [facet, setFacet] = useQueryValue('tag');
+  const [q, setQ] = useQueryParam('q');
+  const [src, setSrc] = useQueryValue('src');
+  const [untaggedOnly, setUntaggedOnly] = useQueryFlag('untagged');
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -137,9 +143,9 @@ export default function Library() {
             <SkillList
               title={`${hasFilter ? '筛选结果' : '全部技能'} · ${shown.length}${hasFilter ? ` / ${cards.length}` : ''}`}
               items={shown}
-              onAction={(item) => setDetailId(item.id)}
-              onTag={(item) => setDetailId(item.id)}
-              onOpen={(item) => setDetailId(item.id)}
+              onAction={(item) => openDetail(item.id)}
+              onTag={(item) => openDetail(item.id)}
+              onOpen={(item) => openDetail(item.id)}
             />
           )}
         </LoadingBoundary>
@@ -152,11 +158,11 @@ export default function Library() {
       )}
 
       <SkillDetailModal
-        id={detailId}
+        id={detailTarget ? detailId : null}
         skill={detailTarget}
         allTags={allTags}
-        onClose={() => setDetailId(null)}
-        onSaved={() => { setDetailId(null); reload(); }}
+        onClose={closeDetail}
+        onSaved={() => { closeDetail(); reload(); }}
       />
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
