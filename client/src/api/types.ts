@@ -61,6 +61,11 @@ export interface SkillCardView {
   state?: 'on' | 'off' | 'own-in-use';
   /** 覆盖行首开关的选中态（缺省由 state 推导）；预设等以名单为准的上下文显式传入 */
   toggleOn?: boolean;
+  /** 开关置为不可交互（如预设中由标签自动纳入的技能，只能解锁标签来停用） */
+  toggleDisabled?: boolean;
+  /** 覆盖 reason 徽标文案（预设详情中「预设引入」→「按标签纳入」等场景） */
+  reasonLabel?: string;
+  reasonTitle?: string;
   offOverride?: boolean;
   linkTarget?: string;
   preset?: string;

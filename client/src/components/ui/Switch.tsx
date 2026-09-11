@@ -7,7 +7,7 @@ interface SwitchProps {
 
 export default function Switch({ checked, onChange, disabled, ...rest }: SwitchProps) {
   return (
-    <span className="switch">
+    <label className="switch">
       <input
         type="checkbox"
         role="switch"
@@ -17,6 +17,6 @@ export default function Switch({ checked, onChange, disabled, ...rest }: SwitchP
         {...rest}
       />
       <span className="switch__track" />
-    </span>
+    </label>
   );
 }

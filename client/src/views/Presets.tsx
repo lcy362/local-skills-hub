@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { api, type PresetView, type StateView, type SkillCardView, type SkillView } from '../api/types';
 import SkillList from '../components/skill/SkillList';
 import { skillViewToCard } from '../components/skill/adapters';
 import EntityList from '../components/common/EntityList';
 import FilterBar from '../components/common/FilterBar';
 import MultiSelect from '../components/ui/MultiSelect';
-import SwitchLabel from '../components/ui/SwitchLabel';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -188,7 +187,6 @@ function PresetDetail({
   const [q, setQ] = useState('');
   const [srcs, setSrcs] = useState<string[]>([]);
   const [facets, setFacets] = useState<string[]>([]);
-  const [untagged, setUntagged] = useState(false);
   const [viewMode, setViewMode] = useViewMode();
   /** 技能名单的本地草稿：连点多个开关时不丢操作；保存失败或切换预设后回退到服务端数据 */
   const [draftSkills, setDraftSkills] = useState<string[] | null>(null);
@@ -198,13 +196,15 @@ function PresetDetail({
     setDraftSkills(null);
   }
   const current = draftSkills ?? preset.skills;
+  /** 技能全量覆盖的 PUT 串行队列，避免连点开关时后发先至覆盖掉前面的操作 */
+  const skillQueue = useRef<Promise<void>>(Promise.resolve());
 
   /** 统一保存入口：PUT 覆盖 skills/tags 并刷新；silent 用于开关这类高频操作 */
-  const save = async (patch: { skills?: string[]; tags?: string[]; active?: boolean }, opts?: { silent?: boolean }) => {
+  const save = async (patch: { skills?: string[]; tags?: string[]; active?: boolean }, opts?: { silent?: boolean; noReload?: boolean }) => {
     try {
       await api(`/presets/${encodeURIComponent(preset.name)}`, { method: 'PUT', body: JSON.stringify(patch) });
       if (!opts?.silent) toast.push('已保存', 'good');
-      onChanged();
+      if (!opts?.noReload) onChanged();
     } catch (e) {
       setDraftSkills(null);
       toast.push(e instanceof Error ? e.message : String(e), 'bad');
@@ -232,10 +232,11 @@ function PresetDetail({
   const toggleSkill = (id: string, on: boolean) => {
     const next = on ? [...current, id] : current.filter((x) => x !== id);
     setDraftSkills(next);
-    void save({ skills: next }, { silent: true });
+    // 不触发整页重载：UI 由本地草稿即时反映，队列保证提交顺序
+    skillQueue.current = skillQueue.current.then(() => save({ skills: next }, { silent: true, noReload: true }));
   };
 
-  // 因打有预设标签而自动纳入、且未显式枚举的技能：用「预设引入」徽标单独标注
+  // 因打有预设标签而自动纳入、且未显式枚举的技能：打「按标签纳入」徽标并锁定开关
   const autoIds = useMemo(() => {
     const set = new Set<string>();
     if (preset.tags.length === 0) return set;
@@ -246,13 +247,19 @@ function PresetDetail({
     return set;
   }, [skills, preset.tags, current]);
 
-  // 全库技能统一成卡片；开关选中态 = 是否显式纳入，自动纳入项打上 reason=preset 徽标
+  // 全库技能统一成卡片：开关选中态 = 显式纳入或按标签纳入；按标签纳入的锁死不可关，并打「按标签纳入」徽标
   const cards = useMemo(() => {
     const ex = new Set(current);
     return skills.map((s) => {
       const card = skillViewToCard(s);
-      card.toggleOn = ex.has(s.id);
-      if (autoIds.has(s.id)) card.reason = 'preset';
+      const auto = autoIds.has(s.id);
+      card.toggleOn = ex.has(s.id) || auto;
+      card.toggleDisabled = auto;
+      if (auto) {
+        card.reason = 'preset';
+        card.reasonLabel = '按标签纳入';
+        card.reasonTitle = '该技能因打有本预设的关联标签而自动纳入，不可直接关闭；去掉对应标签即可停用';
+      }
       return card;
     });
   }, [skills, autoIds, current]);
@@ -281,18 +288,17 @@ function PresetDetail({
       // 多选条件之间为「或」：命中任一选中项即保留，与技能库一致
       if (srcs.length > 0 && !srcs.includes(c.source)) return false;
       if (facets.length > 0 && !facets.some((t) => c.tags.includes(t))) return false;
-      if (untagged && c.tags.length > 0) return false;
       if (kw) {
         const hay = `${c.name} ${c.title ?? ''} ${c.description ?? ''}`.toLowerCase();
         if (!hay.includes(kw)) return false;
       }
       return true;
     });
-  }, [cards, facets, q, srcs, untagged]);
+  }, [cards, facets, q, srcs]);
 
-  const hasFilter = !!(facets.length > 0 || srcs.length > 0 || untagged || q.trim());
+  const hasFilter = !!(facets.length > 0 || srcs.length > 0 || q.trim());
   const clearFilters = () => {
-    setQ(''); setSrcs([]); setFacets([]); setUntagged(false);
+    setQ(''); setSrcs([]); setFacets([]);
   };
 
   const autoCount = autoIds.size;
@@ -340,7 +346,7 @@ function PresetDetail({
       <div className="panel">
         <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>技能</div>
         <p style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', marginTop: 0 }}>
-          开关控制该技能是否显式纳入本预设（已纳入 {explicitCount}）。带「预设引入」标记的技能因打有关联标签而自动纳入，不直接受开关控制，去掉对应标签即可停用。
+          开关控制该技能是否显式纳入本预设（已纳入 {explicitCount}）。打「按标签纳入」标记的技能由关联标签自动纳入，开关已锁定为开启，去掉对应标签即可停用。
         </p>
         <FilterBar
           search={{ value: q, onChange: setQ, placeholder: '搜索技能名称 / 描述' }}
@@ -360,7 +366,6 @@ function PresetDetail({
                 onChange={setFacets}
                 emptyHint="技能都还没有标签。"
               />
-              <SwitchLabel checked={untagged} onChange={setUntagged}>只看未打标签</SwitchLabel>
             </>
           }
           hasFilters={hasFilter}

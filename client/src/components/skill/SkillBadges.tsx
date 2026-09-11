@@ -30,9 +30,9 @@ export function isOn(item: SkillCardView): boolean {
 }
 
 export function reasonBadge(item: SkillCardView) {
-  const label = REASON_LABEL[item.reason];
+  const label = item.reasonLabel ?? REASON_LABEL[item.reason];
   if (!label) return null; // manual 不再作为明显的来源标志展示
-  return <Badge tone="accent" title={REASON_TITLE[item.reason]}>{label}</Badge>;
+  return <Badge tone="accent" title={item.reasonTitle ?? REASON_TITLE[item.reason]}>{label}</Badge>;
 }
 
 export function storeBadge(item: SkillCardView) {

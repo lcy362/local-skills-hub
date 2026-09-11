@@ -447,6 +447,7 @@ select.field {
   border-radius: var(--r-full);
   background: var(--c-surface-3);
   border: 1px solid var(--c-line-strong);
+  cursor: pointer;
   transition: background var(--dur-150) var(--ease), border-color var(--dur-150) var(--ease);
 }
 .switch__track::after {

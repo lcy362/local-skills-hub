@@ -47,8 +47,9 @@ export function skillToEntity(
     meta: <>{item.source}</>,
     toggle: onToggle ? (
       <Switch
-        aria-label={on ? `停用 ${item.name}` : `启用 ${item.name}`}
+        aria-label={item.toggleDisabled ? `${item.name}：由标签自动纳入，不可直接关闭` : on ? `停用 ${item.name}` : `启用 ${item.name}`}
         checked={on}
+        disabled={item.toggleDisabled}
         onChange={() => onToggle(item)}
       />
     ) : undefined,
