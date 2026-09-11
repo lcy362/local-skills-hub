@@ -15,6 +15,7 @@ import { FieldInput, FieldSelect } from '../components/ui/Field';
 import { PathField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { useViewMode } from '../state/viewMode';
 import { navigate, useQueryFlag, useQueryParam, useRoute } from '../state/router';
 
 export default function Agents() {
@@ -38,6 +39,7 @@ export default function Agents() {
     });
   }, [data, q, onlyInstalled]);
   const filtered = !!q.trim() || onlyInstalled;
+  const [viewMode, setViewMode] = useViewMode();
 
   const items: EntityItem[] = shown.map((a) => ({
     id: a.key,
@@ -84,6 +86,7 @@ export default function Agents() {
               controls={<SwitchLabel checked={onlyInstalled} onChange={setOnlyInstalled}>只看已安装</SwitchLabel>}
               hasFilters={filtered}
               onReset={() => { setQ(''); setOnlyInstalled(false); }}
+              view={{ value: viewMode, onChange: setViewMode }}
             />
           </div>
           <LoadingBoundary
@@ -94,6 +97,7 @@ export default function Agents() {
               <EntityList
                 items={items}
                 title={`${filtered ? '筛选结果' : '全部 Agent'} · ${items.length}${filtered ? ` / ${(data ?? []).length}` : ''}`}
+                hideToggle
               />
             )}
           </LoadingBoundary>

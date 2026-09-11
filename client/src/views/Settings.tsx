@@ -14,6 +14,7 @@ import { FieldInput, FieldSelect } from '../components/ui/Field';
 import { PathField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { useViewMode } from '../state/viewMode';
 import { useQueryFlag, useQueryParam } from '../state/router';
 
 /**
@@ -32,6 +33,7 @@ export default function Settings() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const activeSet = useMemo(() => new Set(activeRes ?? []), [activeRes]);
+  const [viewMode, setViewMode] = useViewMode();
 
   const shown = useMemo(() => {
     const kw = q.trim().toLowerCase();
@@ -88,6 +90,7 @@ export default function Settings() {
                   hasFilters={!!q.trim() || onlyInstalled}
                   onReset={() => { setQ(''); setOnlyInstalled(false); }}
                   actions={<Badge tone="accent">已选 {(activeRes ?? []).length}</Badge>}
+                  view={{ value: viewMode, onChange: setViewMode }}
                 />
               </div>
               <EntityList
@@ -111,6 +114,7 @@ export default function Settings() {
                   ),
                   muted: !activeSet.has(a.key),
                 }))}
+                hideToggle
               />
             </>
           )}
@@ -163,6 +167,7 @@ export default function Settings() {
           <EntityList
             title="自定义 Agent（AG-03）"
             toolbar={<Button size="sm" onClick={() => setAddOpen(true)}>新增</Button>}
+            hideToggle
             items={(customs ?? []).map((c) => ({
               id: c.key,
               title: c.name,

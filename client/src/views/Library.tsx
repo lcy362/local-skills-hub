@@ -16,6 +16,7 @@ import SwitchLabel from '../components/ui/SwitchLabel';
 import { PathField, PathListField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
+import { useViewMode } from '../state/viewMode';
 import { navigate, useQueryFlag, useQueryParam, useQueryValue, useRoute } from '../state/router';
 
 const DETAIL_ACTION: SkillAction[] = [{ kind: 'detail', label: '详情' }];
@@ -36,6 +37,7 @@ export default function Library() {
   const [q, setQ] = useQueryParam('q');
   const [src, setSrc] = useQueryValue('src');
   const [untaggedOnly, setUntaggedOnly] = useQueryFlag('untagged');
+  const [viewMode, setViewMode] = useViewMode();
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -131,6 +133,7 @@ export default function Library() {
           chipsEmptyHint={`当前 ${data?.skills.length ?? 0} 个技能都还没有标签。打开任意技能卡片的「详情」，在标签区添加标签后即可在此按标签筛选。`}
           hasFilters={hasFilter}
           onReset={clearFilters}
+          view={{ value: viewMode, onChange: setViewMode }}
         />
       </div>
 
@@ -146,6 +149,7 @@ export default function Library() {
               onAction={(item) => openDetail(item.id)}
               onTag={(item) => openDetail(item.id)}
               onOpen={(item) => openDetail(item.id)}
+              hideToggle
             />
           )}
         </LoadingBoundary>
@@ -242,6 +246,7 @@ function ReposAndSources({ repos, sources, reload, onRegister }: { repos: RepoVi
         items={items}
         toolbar={<Button size="sm" variant="ghost" onClick={onRegister}>登记库</Button>}
         empty={<EmptyState title="暂无来源与仓库" hint="点击「登记库」添加自有仓库或第三方技能库。" />}
+        hideToggle
       />
       <CollectModal repo={collectFor} onClose={() => setCollectFor(null)} onDone={() => { setCollectFor(null); reload(); }} />
     </>

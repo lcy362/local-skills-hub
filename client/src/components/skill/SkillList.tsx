@@ -16,6 +16,8 @@ interface SkillListProps {
   /** 强制布局，用于弹窗等固定形态 */
   mode?: EntityListProps['mode'];
   empty?: EntityListProps['empty'];
+  /** 视图切换器已上移到筛选条 */
+  hideToggle?: boolean;
 }
 
 /** SkillCardView → 通用 EntityItem，保证与其他实体列表风格一致 */
@@ -64,7 +66,10 @@ export default function SkillList({
   onOpen,
   mode,
   empty,
+  hideToggle,
 }: SkillListProps) {
   const entities = items.map((item) => skillToEntity(item, { onToggle, onAction, onTag, onOpen }));
-  return <EntityList items={entities} title={title} toolbar={toolbar} mode={mode} empty={empty} />;
+  return (
+    <EntityList items={entities} title={title} toolbar={toolbar} mode={mode} empty={empty} hideToggle={hideToggle} />
+  );
 }

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import Segment from '../ui/Segment';
 import Tag from '../ui/Tag';
 import EmptyState from '../ui/EmptyState';
-import { useViewMode, type ViewMode } from '../../state/viewMode';
+import { useViewMode, VIEW_MODE_OPTIONS, type ViewMode } from '../../state/viewMode';
 
 /**
  * 通用实体展示契约。
@@ -133,15 +133,18 @@ export interface EntityListProps {
   empty?: ReactNode;
   /** 强制布局（不跟随全局偏好），用于弹窗等固定形态 */
   mode?: ViewMode;
+  /** 视图切换器已上移到筛选条时置 true，避免同一页出现两个切换入口 */
+  hideToggle?: boolean;
 }
 
 /**
  * 通用实体列表容器：默认卡片视图，可切换为列表；
  * 视图偏好全局共享（localStorage），一处切换全站生效。
  */
-export default function EntityList({ items, title, toolbar, toggle = true, empty, mode }: EntityListProps) {
+export default function EntityList({ items, title, toolbar, toggle = true, empty, mode, hideToggle = false }: EntityListProps) {
   const [globalMode, setGlobalMode] = useViewMode();
   const current = mode ?? globalMode;
+  const showToggle = toggle && !hideToggle;
 
   if (items.length === 0) {
     return (
@@ -154,14 +157,14 @@ export default function EntityList({ items, title, toolbar, toggle = true, empty
 
   return (
     <div>
-      {(title || toolbar || toggle) && (
+      {(title || toolbar || showToggle) && (
         <EntityToolbar
           title={title}
           toolbar={toolbar}
-          toggle={toggle ? <Segment<ViewMode> value={current} onChange={setGlobalMode} options={VIEW_OPTIONS} /> : undefined}
+          toggle={showToggle ? <Segment<ViewMode> value={current} onChange={setGlobalMode} options={VIEW_MODE_OPTIONS} /> : undefined}
         />
       )}
-      <div style={{ marginTop: title || toolbar || toggle ? 'var(--sp-4)' : 0 }}>
+      <div style={{ marginTop: title || toolbar || showToggle ? 'var(--sp-4)' : 0 }}>
         {current === 'card' ? (
           <div className="entity-grid">
             {items.map((item) => (
@@ -179,12 +182,6 @@ export default function EntityList({ items, title, toolbar, toggle = true, empty
     </div>
   );
 }
-
-/** 卡片优先，故置于首位 */
-const VIEW_OPTIONS: { label: string; value: ViewMode }[] = [
-  { label: '卡片', value: 'card' },
-  { label: '列表', value: 'list' },
-];
 
 function EntityToolbar({
   title,

@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import Button from '../ui/Button';
 import Chip from '../ui/Chip';
+import Segment from '../ui/Segment';
+import { VIEW_MODE_OPTIONS, type ViewMode } from '../../state/viewMode';
 
 /** 可折叠的次级筛选条件组（如标签） */
 export interface ChipGroup {
@@ -26,6 +28,12 @@ export interface FilterBarProps {
   onReset?: () => void;
   /** 行末固定操作（刷新、统计等） */
   actions?: ReactNode;
+  /**
+   * 视图切换（卡片 / 列表）。上移到本工具条右端，与筛选控件同处一行，
+   * 既填充行尾空白，也让「看什么」与「怎么看」集中在一处。
+   * 传入后请同时给页面上的 EntityList 传 hideToggle，避免出现两个入口。
+   */
+  view?: { value: ViewMode; onChange: (v: ViewMode) => void };
 }
 
 /**
@@ -41,6 +49,7 @@ export default function FilterBar({
   hasFilters = false,
   onReset,
   actions,
+  view,
 }: FilterBarProps) {
   const [chipsOpen, setChipsOpen] = useState(false);
   // 只要调用方声明了 chipGroups，入口就常驻（哪怕当前没有可选项），
@@ -106,6 +115,12 @@ export default function FilterBar({
           )}
           {actions}
         </div>
+
+        {view && (
+          <div className="filterbar__view">
+            <Segment<ViewMode> value={view.value} onChange={view.onChange} options={VIEW_MODE_OPTIONS} />
+          </div>
+        )}
       </div>
 
       {declared && groups.length === 0 && chipsOpen && !chipsActive && (

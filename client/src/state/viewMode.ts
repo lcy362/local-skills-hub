@@ -3,6 +3,12 @@ import { useEffect, useState } from 'react';
 /** 全局共享的展示形态：卡片优先，可切换为列表 */
 export type ViewMode = 'card' | 'list';
 
+/** 切换器选项（卡片优先，故置于首位）—— 列表与筛选条共用同一份定义 */
+export const VIEW_MODE_OPTIONS: { label: string; value: ViewMode }[] = [
+  { label: '卡片', value: 'card' },
+  { label: '列表', value: 'list' },
+];
+
 const KEY = 'lsh-view-mode';
 const listeners = new Set<(v: ViewMode) => void>();
 

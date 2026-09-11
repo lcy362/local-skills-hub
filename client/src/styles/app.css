@@ -715,6 +715,13 @@ select.field {
   flex-wrap: wrap;
   min-width: 0;
 }
+/* 视图切换靠右：填掉行尾空白，且不与左侧筛选簇混为一体 */
+.filterbar__view {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
 /* ---- 控件节奏：条内所有可交互控件统一高度，消除参差 ---- */
 .filterbar input.field,
 .filterbar select.field {
@@ -737,10 +744,11 @@ select.field {
   position: relative;
   display: flex;
   align-items: center;
-  /* 固定上限：各页面搜索框同宽，不会因为右侧控件多少而被撑成不同尺寸 */
-  flex: 1 1 260px;
-  max-width: 480px;
-  min-width: 0;
+  /* 工具栏搜索：上限约束最大宽度（避免撑满整行），下限窄屏仍可用，
+     中间由 flex 自适应吸收余量 */
+  flex: 1 1 240px;
+  max-width: 400px;
+  min-width: 180px;
 }
 .filterbar__search .field {
   padding-left: 34px;
@@ -810,8 +818,8 @@ select.field {
   flex-wrap: wrap;
   max-width: 100%;
   min-width: 0;
-  /* 独占一行时也靠右，与「左侧搜索 / 右侧筛选」的读序一致 */
-  margin-left: auto;
+  /* 紧接搜索框依次排列：限宽搜索 + 右对齐会在中间留下大段空白，
+     同时让右侧控件显得拥挤，故整体左对齐、间距统一 */
 }
 .filterbar__field {
   flex: 0 0 180px;
@@ -1103,6 +1111,8 @@ select.field {
   font-size: var(--fs-12);
   color: var(--c-ink-2);
   margin-top: 2px;
+  /* 描述里可能含 URL 等长串，必须允许在任意位置断行，否则撑破行宽导致横向滚动 */
+  overflow-wrap: anywhere;
 }
 .entity-row__right {
   display: flex;
@@ -1114,6 +1124,17 @@ select.field {
   display: flex;
   align-items: center;
   gap: var(--sp-1);
+}
+/* 窄屏：与 tokens.css 的 .row 同一约定——操作区独占一行右对齐，
+   否则长路径 + 多个按钮会把行撑出视口（横向滚动） */
+@media (max-width: 768px) {
+  .entity-row {
+    flex-wrap: wrap;
+  }
+  .entity-row__right {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 /* ============ Detail pages ============ */
