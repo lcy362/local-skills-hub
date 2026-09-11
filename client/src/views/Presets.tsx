@@ -101,7 +101,7 @@ export default function Presets() {
       <CreatePresetModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onCreated={(name) => { setCreateOpen(false); open(name); }}
+        onCreated={(name) => { setCreateOpen(false); reload(); open(name); }}
       />
     </>
   );
