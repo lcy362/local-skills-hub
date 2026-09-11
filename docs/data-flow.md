@@ -144,7 +144,7 @@ flowchart LR
 flowchart LR
     A[Agent 技能目录<br/>自带本体] -- "collect 收集<br/>(仅复制, 不动 agent)" --> R
     B[任意外部目录] -- "importDirs 批量导入<br/>(识别→复制, 同名去重)" --> R
-    C[第三方仓库] -- "收编 integrate<br/>(applyAdoption)" --> R
+    C[第三方仓库] -- "导入 collect/import" --> R
     C -. "只读关联 linked=true" .-> S[scanAll 实时纳入资产库]
     R[(仓库 <repo>/skills)]
     R --> S --> LIB[资产库视图<br/>id = name@source]

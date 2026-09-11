@@ -21,7 +21,7 @@
 | **NFR-02 Windows 降级** | 软链抛错自动降级为复制并写入 warnings | `core/sync.ts` |
 | **PJ-05 回写仓库** | 项目详情「回写仓库」，可指定目标仓库 | `core/projects.ts`、`/projects/:id/push` |
 | **UI-03 SKILL.md 预览** | 技能详情弹窗：元数据 + 标签编辑 + 来源追溯 + 正文预览 | `views/Library.tsx`、`/skills/:id/content` |
-| **IM-01 整合向导** | 技能库「整合向导」：扫描 → 列候选 → 保留/收编 | `components/integrate/IntegrateWizard.tsx` |
+| **IM-01 整合向导** | 已移除：同名多来源的保留/收编由「归集」确认页（仓库版本入候选）覆盖 | — |
 | **IM-04 来源追溯** | 收编/导入时写入 `skillMeta.origin`，详情展示 | `core/integrate.ts`、`core/import.ts` |
 | **EK-01 带索引清单的库** | 支持 `candidate-catalog.json` 等清单定位本体 | `core/scanner.ts` |
 | **EK-02 批量导入** | 导入弹窗改多行目录 | `views/Library.tsx` |

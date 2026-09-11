@@ -4,7 +4,6 @@ import { skillViewToCard } from '../components/skill/adapters';
 import SkillList from '../components/skill/SkillList';
 import EntityList, { type EntityItem } from '../components/common/EntityList';
 import FilterBar from '../components/common/FilterBar';
-import IntegrateWizard from '../components/integrate/IntegrateWizard';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -29,7 +28,6 @@ export default function Library() {
   const { data, loading, error, reload } = useAsync<StateView>(() => api('/state'));
   const toast = useToast();
   const route = useRoute();
-  const [integrateOpen, setIntegrateOpen] = useState(false);
 
   // 详情弹层与筛选条件都写进地址，刷新后可完整复原当前页面
   const detailId = route.sub;
@@ -94,17 +92,7 @@ export default function Library() {
       <PageHeader
         title="技能库"
         sub={data ? `共 ${data.skills.length} 个技能` : undefined}
-        actions={<Button variant="ghost" onClick={() => setIntegrateOpen((v) => !v)}>整合向导</Button>}
       />
-
-      {integrateOpen && (
-        <div className="panel">
-          <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>
-            整合向导（IM-01 / IM-02）
-          </div>
-          <IntegrateWizard onDone={reload} />
-        </div>
-      )}
 
       <div className="panel">
         <FilterBar

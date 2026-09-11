@@ -9,7 +9,7 @@ import { scanAll, detectLayoutAbs } from '../core/scanner.js';
 import * as presets from '../core/presets.js';
 import * as active from '../core/active.js';
 import { syncActive, diffSync, computeDesired, desiredContext } from '../core/sync.js';
-import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
+import { collectCandidates } from '../core/integrate.js';
 import { addProject, syncProject, projectSkillRows, projectAddable, deployedAgents, pushProjectToRepo } from '../core/projects.js';
 import { importDirs, previewImportDirs } from '../core/import.js';
 import { previewCollect, collectAgentSkill } from '../core/collect.js';
@@ -414,19 +414,6 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     presets.remove(cfg, req.params.name);
     touch();
     res.json({ ok: true });
-  });
-
-  // ---- integrate (收编/初始整合 IM-01~04) ----
-  r.post('/integrate/preview', (_req, res) => {
-    const lib = library();
-    res.json({ groups: previewGroups(cfg, lib) });
-  });
-  r.post('/integrate', (req, res) => {
-    const lib = library();
-    const results = applyAdoption(cfg, lib, req.body?.decisions ?? []);
-    cfg.save();
-    touch();
-    res.json({ results });
   });
 
   // ---- projects (项目级 skill) ----

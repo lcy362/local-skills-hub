@@ -81,9 +81,6 @@ export interface ImportPreviewItem { source: string; layout: string; count: numb
 export interface ImportResult { source: string; imported: string[]; skipped: string[] }
 export interface MergeCandidate { name: string; source: string; sourceLabel: string; description?: string; version?: string; dir: string; existing: boolean }
 export interface MergeGroup { name: string; candidates: MergeCandidate[] }
-/** /integrate/preview 出参（IM-02 去重确认） */
-export interface IntegrateCandidate { id: string; name: string; source: string; sourceLabel: string; dir: string; inRepo: boolean; description?: string }
-export interface IntegrateGroup { name: string; candidates: IntegrateCandidate[] }
 export interface AgentCollectItem {
   name: string;
   /** skill 本体目录 */
