@@ -67,6 +67,8 @@
   --fw-semibold: 600;
   --fw-bold: 700;
   --ff-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* 标题用几何无衬线，与正文 Inter 形成配对（字体已在 index.html 加载） */
+  --ff-display: "Space Grotesk", var(--ff-sans);
   --ff-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* motion */
@@ -77,6 +79,8 @@
   /* app chrome */
   --rail-w: 224px;
   --topbar-h: 60px;
+  /* 工具条内输入框 / 下拉 / 开关 / 按钮的统一高度，保证同行控件严格对齐 */
+  --control-h: 38px;
 }
 
 html[data-theme="dark"] {

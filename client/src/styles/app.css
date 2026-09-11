@@ -42,6 +42,7 @@
   padding: 0 var(--sp-3) var(--sp-4);
 }
 .rail__mark {
+  font-family: var(--ff-display);
   font-weight: var(--fw-bold);
   font-size: var(--fs-18);
   letter-spacing: -0.02em;
@@ -145,7 +146,10 @@
   flex-wrap: wrap;
 }
 .page-head__title {
+  font-family: var(--ff-display);
   font-size: var(--fs-24);
+  /* 统一字重：Topbar 用 div、PageHeader 用 h1，此前两者一粗一细 */
+  font-weight: var(--fw-semibold);
 }
 .page-head__sub {
   color: var(--c-ink-3);
@@ -386,6 +390,10 @@ select.field {
   border-color: var(--c-accent);
   color: var(--c-accent);
   font-weight: var(--fw-semibold);
+}
+.chip__count {
+  opacity: 0.6;
+  margin-left: 2px;
 }
 
 /* ============ Segment ============ */
@@ -657,6 +665,7 @@ select.field {
   flex-wrap: wrap;
 }
 .entity-toolbar__title {
+  font-family: var(--ff-display);
   font-size: var(--fs-16);
   font-weight: var(--fw-semibold);
 }
@@ -685,6 +694,240 @@ select.field {
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
+}
+
+/* ============ FilterBar（统一搜索 / 筛选控制条） ============
+ * Hallmark · component: filter-bar · genre: modern-minimal · theme: Cobalt(light)
+ * states: default · hover · focus-visible · active · disabled · filled
+ * error / loading / success: n/a（纯客户端同步筛选，无异步与失败路径）
+ * contrast: pass (46–50)
+ */
+.filterbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.filterbar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* ---- 控件节奏：条内所有可交互控件统一高度，消除参差 ---- */
+.filterbar input.field,
+.filterbar select.field {
+  height: var(--control-h);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+/* label 默认 display:inline，会为 select 撑出行框降部空隙，使下拉视觉上浮 */
+.filterbar__field > label {
+  display: block;
+}
+.filterbar__row .btn {
+  height: var(--control-h);
+  padding-left: var(--sp-4);
+  padding-right: var(--sp-4);
+}
+
+/* ---- search ---- */
+.filterbar__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* 固定上限：各页面搜索框同宽，不会因为右侧控件多少而被撑成不同尺寸 */
+  flex: 1 1 260px;
+  max-width: 480px;
+  min-width: 0;
+}
+.filterbar__search .field {
+  padding-left: 34px;
+  padding-right: 34px;
+}
+.filterbar__search .field::-webkit-search-cancel-button,
+.filterbar__search .field::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.filterbar__icon {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--c-ink-3);
+  pointer-events: none;
+  transition: color var(--dur-150) var(--ease);
+}
+.filterbar__search:has(.field:focus) .filterbar__icon {
+  color: var(--c-accent);
+}
+.filterbar__clear {
+  position: absolute;
+  right: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--c-ink-3);
+  cursor: pointer;
+  transition: background var(--dur-150) var(--ease), color var(--dur-150) var(--ease),
+    transform var(--dur-150) var(--ease);
+}
+/* 焦点环用实心 accent（≥3:1），全局 --c-focus-ring 为半透明软环，仅作补充 */
+.filterbar__clear:focus-visible,
+.filterbar__toggle:focus-visible,
+.filterbar .chip:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.filterbar__clear:hover {
+  background: var(--c-surface-3);
+  color: var(--c-ink-1);
+}
+.filterbar__clear:active {
+  transform: translateY(1px);
+}
+.filterbar__clear:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ---- inline controls ---- */
+/* 右侧筛选控件作为一个整体换行：不能被行内挤压，否则组内会自行折行、
+   把整条工具条撑成两行高（这正是之前「看着不对齐」的根因）。 */
+.filterbar__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
+  min-width: 0;
+  /* 独占一行时也靠右，与「左侧搜索 / 右侧筛选」的读序一致 */
+  margin-left: auto;
+}
+.filterbar__field {
+  flex: 0 0 180px;
+  min-width: 0;
+}
+.switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: var(--control-h);
+  min-height: var(--control-h);
+  font-size: var(--fs-13);
+  color: var(--c-ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ---- collapsible chips ---- */
+.filterbar__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 38px;
+  padding: 0 var(--sp-3);
+  height: var(--control-h);
+  min-height: var(--control-h);
+  font-size: var(--fs-13);
+  font-weight: var(--fw-medium);
+  color: var(--c-ink-2);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--dur-150) var(--ease), color var(--dur-150) var(--ease),
+    background var(--dur-150) var(--ease), transform var(--dur-150) var(--ease);
+}
+.filterbar__toggle:hover {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+.filterbar__toggle:active {
+  transform: translateY(1px);
+}
+.filterbar__toggle[aria-expanded="true"] {
+  border-color: var(--c-accent);
+  color: var(--c-ink-1);
+}
+.filterbar__badge {
+  font-size: var(--fs-12);
+  color: var(--c-ink-3);
+  background: var(--c-surface-2);
+  border-radius: var(--r-full);
+  padding: 0 6px;
+}
+/* 尚无任何可选项：入口常驻但弱化，避免功能彻底隐身 */
+.filterbar__toggle[data-empty] {
+  border-style: dashed;
+  color: var(--c-ink-3);
+}
+.filterbar__toggle[data-empty]:hover {
+  border-color: var(--c-line-strong);
+  color: var(--c-ink-2);
+}
+.filterbar__toggle[data-empty][aria-expanded="true"] {
+  border-style: dashed;
+  color: var(--c-ink-2);
+}
+.filterbar__hint {
+  margin: 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-line);
+  font-size: var(--fs-12);
+  color: var(--c-ink-3);
+}
+.filterbar__chips {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-line);
+}
+.filterbar__group {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.filterbar__group-label {
+  flex: 0 0 auto;
+  padding-top: 3px;
+  font-size: var(--fs-12);
+  font-weight: var(--fw-semibold);
+  color: var(--c-ink-2);
+}
+/* 窄屏：搜索与下拉各占整行，避免 180px 的下拉孤零零漂浮 */
+@media (max-width: 560px) {
+  .filterbar__search,
+  .filterbar__controls,
+  .filterbar__field {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+}
+
+/* chip 补充交互态（原 .chip 只有 default / hover / is-on） */
+.chip:active {
+  transform: translateY(1px);
+}
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.chip:disabled:hover {
+  border-color: var(--c-line);
+  color: var(--c-ink-2);
 }
 
 .entity-grid {
@@ -749,6 +992,7 @@ select.field {
   gap: var(--sp-2);
 }
 .entity-card__title {
+  font-family: var(--ff-display);
   font-size: var(--fs-16);
   font-weight: var(--fw-semibold);
   overflow-wrap: anywhere;

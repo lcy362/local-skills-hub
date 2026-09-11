@@ -3,15 +3,16 @@ import { api, type StateView, type RepoView, type SkillContent, type AgentCollec
 import { skillViewToCard } from '../components/skill/adapters';
 import SkillList from '../components/skill/SkillList';
 import EntityList, { type EntityItem } from '../components/common/EntityList';
+import FilterBar from '../components/common/FilterBar';
 import IntegrateWizard from '../components/integrate/IntegrateWizard';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
-import Chip from '../components/ui/Chip';
 import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
 import { FieldInput, FieldSelect } from '../components/ui/Field';
+import SwitchLabel from '../components/ui/SwitchLabel';
 import { PathField, PathListField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
@@ -42,6 +43,13 @@ export default function Library() {
     return [...set].sort();
   }, [data]);
 
+  /** 每个标签下的技能数，供筛选器展示 */
+  const tagCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    data?.skills.forEach((s) => s.tags?.forEach((t) => { m[t] = (m[t] ?? 0) + 1; }));
+    return m;
+  }, [data]);
+
   const cards = useMemo(() => (data?.skills ?? []).map((s) => skillViewToCard(s, DETAIL_ACTION)), [data]);
   const shown = useMemo(() => {
     const kw = q.trim().toLowerCase();
@@ -56,6 +64,11 @@ export default function Library() {
       return true;
     });
   }, [cards, facet, q, src, untaggedOnly]);
+
+  const hasFilter = !!(facet || src || untaggedOnly || q.trim());
+  const clearFilters = () => {
+    setQ(''); setSrc(undefined); setFacet(undefined); setUntaggedOnly(false);
+  };
 
   const detailTarget = detailId ? data?.skills.find((s) => s.id === detailId) : undefined;
 
@@ -81,21 +94,38 @@ export default function Library() {
         </div>
       )}
 
-      <div className="panel" style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <FieldInput label="搜索" placeholder="名称 / 描述" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <div style={{ minWidth: 160 }}>
-          <FieldSelect label="来源" value={src ?? ''} onChange={(e) => setSrc(e.target.value || undefined)}>
-            <option value="">全部来源</option>
-            {allSources.map((s) => <option key={s} value={s}>{s}</option>)}
-          </FieldSelect>
-        </div>
-        <label className="switch" style={{ cursor: 'pointer' }}>
-          <input type="checkbox" checked={untaggedOnly} onChange={(e) => setUntaggedOnly(e.target.checked)} />
-          <span className="switch__track" />
-          <span style={{ marginLeft: 'var(--sp-2)', color: 'var(--c-ink-2)', fontSize: 'var(--fs-13)' }}>只看未打标签的</span>
-        </label>
+      <div className="panel">
+        <FilterBar
+          search={{ value: q, onChange: setQ, placeholder: '搜索技能名称 / 描述' }}
+          controls={
+            <>
+              <div className="filterbar__field">
+                <FieldSelect
+                  aria-label="来源"
+                  value={src ?? ''}
+                  onChange={(e) => setSrc(e.target.value || undefined)}
+                >
+                  <option value="">全部来源</option>
+                  {allSources.map((s) => <option key={s} value={s}>{s}</option>)}
+                </FieldSelect>
+              </div>
+              <SwitchLabel checked={untaggedOnly} onChange={setUntaggedOnly}>只看未打标签</SwitchLabel>
+            </>
+          }
+          chipGroups={[
+            {
+              key: 'tags',
+              label: '标签',
+              options: allTags.map((t) => ({ label: t, value: t, count: tagCounts[t] })),
+              value: facet,
+              onChange: setFacet,
+            },
+          ]}
+          chipsToggleLabel="按标签筛选"
+          chipsEmptyHint={`当前 ${data?.skills.length ?? 0} 个技能都还没有标签。打开任意技能卡片的「详情」，在标签区添加标签后即可在此按标签筛选。`}
+          hasFilters={hasFilter}
+          onReset={clearFilters}
+        />
       </div>
 
       <div className="panel">
@@ -105,7 +135,7 @@ export default function Library() {
         >
           {() => (
             <SkillList
-              title={`${facet ? `标签：#${facet}` : '全部技能'} · ${shown.length}`}
+              title={`${hasFilter ? '筛选结果' : '全部技能'} · ${shown.length}${hasFilter ? ` / ${cards.length}` : ''}`}
               items={shown}
               onAction={(item) => setDetailId(item.id)}
               onTag={(item) => setDetailId(item.id)}
@@ -114,18 +144,6 @@ export default function Library() {
           )}
         </LoadingBoundary>
       </div>
-
-      {data && data.skills.length > 0 && !facet && (
-        <div className="panel">
-          <PageHeaderSmall title="按标签筛选" />
-          <Chip
-            options={allTags.map((t) => ({ label: t, value: t }))}
-            value={facet}
-            onChange={(v) => setFacet(v === facet ? undefined : v)}
-            allowDeselect
-          />
-        </div>
-      )}
 
       {data && (
         <div className="panel">
@@ -144,14 +162,6 @@ export default function Library() {
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
       <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onDone={reload} />
     </>
-  );
-}
-
-function PageHeaderSmall({ title }: { title: string }) {
-  return (
-    <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>
-      {title}
-    </div>
   );
 }
 

@@ -3,6 +3,8 @@ import { api, type AgentView, type AgentSkillsResp, type PresetView, type SkillA
 import SkillList from '../components/skill/SkillList';
 import AddableSkillList from '../components/skill/AddableSkillList';
 import EntityList, { type EntityItem } from '../components/common/EntityList';
+import FilterBar from '../components/common/FilterBar';
+import SwitchLabel from '../components/ui/SwitchLabel';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -28,6 +30,7 @@ export default function Agents() {
       return `${a.name} ${a.key} ${a.globalDir}`.toLowerCase().includes(kw);
     });
   }, [data, q, onlyInstalled]);
+  const filtered = !!q.trim() || onlyInstalled;
 
   const items: EntityItem[] = shown.map((a) => ({
     id: a.key,
@@ -59,21 +62,24 @@ export default function Agents() {
         <AgentDetail agent={selected} onBack={() => setSelected(null)} onChanged={reload} />
       ) : (
         <>
-          <div className="panel" style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <FieldInput label="搜索" placeholder="名称 / key / 目录" value={q} onChange={(e) => setQ(e.target.value)} />
-            </div>
-            <label className="switch" style={{ cursor: 'pointer' }}>
-              <input type="checkbox" checked={onlyInstalled} onChange={(e) => setOnlyInstalled(e.target.checked)} />
-              <span className="switch__track" />
-              <span style={{ marginLeft: 'var(--sp-2)', color: 'var(--c-ink-2)', fontSize: 'var(--fs-13)' }}>只看已安装</span>
-            </label>
+          <div className="panel">
+            <FilterBar
+              search={{ value: q, onChange: setQ, placeholder: '搜索名称 / key / 目录' }}
+              controls={<SwitchLabel checked={onlyInstalled} onChange={setOnlyInstalled}>只看已安装</SwitchLabel>}
+              hasFilters={filtered}
+              onReset={() => { setQ(''); setOnlyInstalled(false); }}
+            />
           </div>
           <LoadingBoundary
             state={{ loading, error, data }}
             empty={{ title: '暂无 Agent', hint: '系统中尚未登记任何 Agent。', icon: '◉' }}
           >
-            {() => <EntityList items={items} title={`全部 Agent（${items.length}）`} />}
+            {() => (
+              <EntityList
+                items={items}
+                title={`${filtered ? '筛选结果' : '全部 Agent'} · ${items.length}${filtered ? ` / ${(data ?? []).length}` : ''}`}
+              />
+            )}
           </LoadingBoundary>
         </>
       )}

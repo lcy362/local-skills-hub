@@ -27,6 +27,7 @@ h2,
 h3,
 h4 {
   margin: 0;
+  font-family: var(--ff-display);
   font-weight: var(--fw-semibold);
   letter-spacing: -0.01em;
   color: var(--c-ink-1);

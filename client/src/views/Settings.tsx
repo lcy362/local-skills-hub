@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import { api, type AgentView, type CustomAgentView, type SettingsView } from '../api/types';
 import EntityList from '../components/common/EntityList';
+import FilterBar from '../components/common/FilterBar';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Switch from '../components/ui/Switch';
+import SwitchLabel from '../components/ui/SwitchLabel';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
 import Modal from '../components/ui/Modal';
@@ -77,16 +79,14 @@ export default function Settings() {
         <LoadingBoundary state={{ loading, error, data: activeRes }} empty={{ title: '暂无 Agent', icon: '◉' }}>
           {() => (
             <>
-              <div style={{ display: 'flex', gap: 'var(--sp-3)', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 'var(--sp-3)' }}>
-                <div style={{ flex: 1, minWidth: 200 }}>
-                  <FieldInput label="搜索" placeholder="名称 / key / 目录" value={q} onChange={(e) => setQ(e.target.value)} />
-                </div>
-                <label className="switch" style={{ cursor: 'pointer' }}>
-                  <input type="checkbox" checked={onlyInstalled} onChange={(e) => setOnlyInstalled(e.target.checked)} />
-                  <span className="switch__track" />
-                  <span style={{ marginLeft: 'var(--sp-2)', color: 'var(--c-ink-2)', fontSize: 'var(--fs-13)' }}>只看已安装</span>
-                </label>
-                <Badge tone="accent">已选 {(activeRes ?? []).length}</Badge>
+              <div style={{ marginBottom: 'var(--sp-3)' }}>
+                <FilterBar
+                  search={{ value: q, onChange: setQ, placeholder: '搜索名称 / key / 目录' }}
+                  controls={<SwitchLabel checked={onlyInstalled} onChange={setOnlyInstalled}>只看已安装</SwitchLabel>}
+                  hasFilters={!!q.trim() || onlyInstalled}
+                  onReset={() => { setQ(''); setOnlyInstalled(false); }}
+                  actions={<Badge tone="accent">已选 {(activeRes ?? []).length}</Badge>}
+                />
               </div>
               <EntityList
                 items={shown.map((a) => ({
