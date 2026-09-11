@@ -29,6 +29,8 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
   const touchConfig = () => opts?.onConfigChanged?.();
 
   const library = () => scanAll(cfg.data.repos, cfg.data.foreignSources);
+  /** 仓库类变更的统一出参：两类仓库一起回传，便于类型转换后前端一次刷新 */
+  const warehouses = () => ({ repos: cfg.data.repos, sources: cfg.data.foreignSources });
 
   r.get('/state', (_req, res) => {
     const lib = library();
@@ -117,16 +119,32 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     touch();
     res.json(cfg.data.repos);
   });
+  // 编辑自有仓库：改名称 / 路径 / 布局 / root；kind='source' 时转为第三方仓库。
+  // 转换保持 id 不变，故 skill 标识 name@id 与标签、preset、项目引用均不受影响。
+  // 注意：两类仓库扫描根不同（自有 = root ?? <path>/skills，第三方 = path），
+  // 路径换算由调用方给出，接口只负责落库。
   r.put('/repos/:id', (req, res) => {
     const repo = cfg.data.repos.find((x) => x.id === req.params.id);
     if (!repo) return res.status(404).json({ error: 'repo not found' });
-    const { layout, path: p, root } = req.body ?? {};
+    const { layout, path: p, root, name, kind } = req.body ?? {};
     if (layout) repo.layout = layout;
     if (p) repo.path = p;
+    if (name !== undefined) repo.name = name || undefined;
     if (root !== undefined) repo.root = root || undefined;
+
+    if (kind === 'source') {
+      cfg.data.repos = cfg.data.repos.filter((x) => x.id !== repo.id);
+      cfg.data.foreignSources.push({
+        id: repo.id,
+        name: repo.name ?? repo.id,
+        path: repo.path,
+        layout: repo.layout,
+        linked: true,
+      });
+    }
     cfg.save();
     touch();
-    res.json(cfg.data.repos);
+    res.json(warehouses());
   });
   r.post('/repos/scan/:id', (req, res) => {
     const repo = cfg.data.repos.find((x) => x.id === req.params.id);
@@ -203,7 +221,32 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     touch();
     res.json(cfg.data.foreignSources);
   });
-  // 收编：把只读关联的第三方库拷贝进仓库本体并接管（EK-03）
+  // 编辑第三方仓库：改名称 / 路径 / 布局 / 只读关联；kind='repo' 时转为自有仓库
+  // （此时 root 由调用方给出，用于维持原扫描根不变）。
+  r.put('/sources/:id', (req, res) => {
+    const src = cfg.data.foreignSources.find((x) => x.id === req.params.id);
+    if (!src) return res.status(404).json({ error: 'source not found' });
+    const { name, path: p, layout, linked, kind, root } = req.body ?? {};
+    if (name !== undefined) src.name = name || src.id;
+    if (p) src.path = p;
+    if (layout) src.layout = layout;
+    if (linked !== undefined) src.linked = linked === true;
+
+    if (kind === 'repo') {
+      cfg.data.foreignSources = cfg.data.foreignSources.filter((x) => x.id !== src.id);
+      cfg.data.repos.push({
+        id: src.id,
+        name: src.name && src.name !== src.id ? src.name : undefined,
+        path: src.path,
+        layout: src.layout,
+        root: root || undefined,
+      });
+    }
+    cfg.save();
+    touch();
+    res.json(warehouses());
+  });
+  // 收编：把只读关联的第三方仓库拷贝进仓库本体并接管（EK-03）
   r.post('/sources/:id/adopt', (req, res) => {
     const { repoId } = req.body ?? {};
     try {

@@ -25,7 +25,7 @@
 | **IM-04 来源追溯** | 收编/导入时写入 `skillMeta.origin`，详情展示 | `core/integrate.ts`、`core/import.ts` |
 | **EK-01 带索引清单的库** | 支持 `candidate-catalog.json` 等清单定位本体 | `core/scanner.ts` |
 | **EK-02 批量导入** | 导入弹窗改多行目录 | `views/Library.tsx` |
-| **EK-03 收编第三方库** | 来源列表「收编」→ 拷进仓库并置 `linked=false` | `core/import.ts`、`/sources/:id/adopt` |
+| **EK-03 收编第三方仓库** | 来源列表「收编」→ 拷进仓库并置 `linked=false` | `core/import.ts`、`/sources/:id/adopt` |
 | **SR-04 auto 布局** | 登记默认 auto，扫描期自动检测 | `core/scanner.ts` |
 | **AG-01 清单补齐** | 补 `antigravity`/`omp_agent`/`pi`/`deepseek_harness`/`zencoder`/`zcode`/`autoclaw` + 20 个长尾，共 55 个 | `core/agents.ts` |
 | **AG-02 家族/共享目录标注** | 卡片与详情页展示家族、共享目录、亦被谁读取 | `core/agents.ts`、`views/Agents.tsx` |

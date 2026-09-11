@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { api, type StateView, type RepoView, type SkillContent, type AgentCollectPreview, type ImportPreviewItem, type SkillAction } from '../api/types';
+import { api, type StateView, type RepoView, type SourceView, type SkillContent, type AgentCollectPreview, type ImportPreviewItem, type SkillAction } from '../api/types';
 import { skillViewToCard } from '../components/skill/adapters';
 import SkillList from '../components/skill/SkillList';
 import EntityList, { type EntityItem } from '../components/common/EntityList';
@@ -28,7 +28,6 @@ export default function Library() {
   const toast = useToast();
   const route = useRoute();
   const [importOpen, setImportOpen] = useState(false);
-  const [registerOpen, setRegisterOpen] = useState(false);
   const [integrateOpen, setIntegrateOpen] = useState(false);
 
   // 详情弹层与筛选条件都写进地址，刷新后可完整复原当前页面
@@ -121,7 +120,7 @@ export default function Library() {
                 options={allSources.map((s) => ({ label: s, value: s, count: sourceCounts[s] }))}
                 selected={srcs}
                 onChange={setSrcs}
-                emptyHint="尚未登记任何仓库或第三方库。"
+                emptyHint="尚未登记任何仓库。"
               />
               <MultiSelect
                 label="标签"
@@ -159,7 +158,7 @@ export default function Library() {
 
       {data && (
         <div className="panel">
-          <ReposAndSources repos={data.repos} sources={data.sources} reload={reload} onRegister={() => setRegisterOpen(true)} />
+          <ReposAndSources repos={data.repos} sources={data.sources} reload={reload} />
         </div>
       )}
 
@@ -172,16 +171,20 @@ export default function Library() {
       />
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
-      <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} onDone={reload} />
     </>
   );
 }
 
-/* 统一管理自有仓库 + 第三方库（不按来源切分技能管理，仅作概念区分） */
-function ReposAndSources({ repos, sources, reload, onRegister }: { repos: RepoView[]; sources: StateView['sources']; reload: () => void; onRegister: () => void }) {
+/** 卡片上定位到的一条仓库：kind 与 API 路由对齐（repo → /repos，source → /sources） */
+type WarehouseTarget = (RepoView & { kind: 'repo' }) | (SourceView & { kind: 'source' });
+
+/* 统一管理自有仓库 + 第三方仓库（不按来源切分技能管理，仅作概念区分） */
+function ReposAndSources({ repos, sources, reload }: { repos: RepoView[]; sources: SourceView[]; reload: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [collectFor, setCollectFor] = useState<RepoView | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<WarehouseTarget | null>(null);
 
   const remove = async (kind: 'repos' | 'sources', id: string) => {
     try {
@@ -208,14 +211,18 @@ function ReposAndSources({ repos, sources, reload, onRegister }: { repos: RepoVi
     }
   };
 
+  // 两类仓库统一展示：标题取名称（自有仓库以 id 兼作名称，第三方仓库用 name、缺省回落 id），
+  // 副标题取磁盘路径，类型与状态一律用徽标区分。
   const items: EntityItem[] = [
     ...repos.map((repo) => ({
       id: `repo:${repo.id}`,
-      title: repo.path,
-      sub: <span className="mono">{repo.layout} · {repo.root ?? 'root'}</span>,
+      title: repo.name || repo.id,
+      sub: <span className="mono">{repo.path}{repo.root ? ` · ${repo.root}` : ''}</span>,
       status: <Badge tone="info">自有仓库</Badge>,
+      badges: <Badge tone="neutral">{repo.layout}</Badge>,
       actions: (
         <>
+          <Button size="sm" variant="ghost" onClick={() => setEditTarget({ ...repo, kind: 'repo' })}>编辑</Button>
           <Button size="sm" variant="primary" loading={busy === repo.id} onClick={() => setCollectFor(repo)} title="从已安装 Agent 归集 skill 到本仓库">
             归集
           </Button>
@@ -226,10 +233,17 @@ function ReposAndSources({ repos, sources, reload, onRegister }: { repos: RepoVi
     ...sources.map((s) => ({
       id: `source:${s.id}`,
       title: s.name || s.id,
-      sub: <span className="mono">{s.path} · {s.layout}</span>,
-      status: <Badge tone={s.linked ? 'accent' : 'good'}>{s.linked ? '只读引用' : '已收编'}</Badge>,
+      sub: <span className="mono">{s.path}</span>,
+      status: <Badge tone="accent">第三方仓库</Badge>,
+      badges: (
+        <>
+          <Badge tone="neutral">{s.layout}</Badge>
+          <Badge tone={s.linked ? 'info' : 'good'}>{s.linked ? '只读引用' : '已收编'}</Badge>
+        </>
+      ),
       actions: (
         <>
+          <Button size="sm" variant="ghost" onClick={() => setEditTarget({ ...s, kind: 'source' })}>编辑</Button>
           {s.linked && (
             <Button size="sm" variant="primary" loading={busy === `adopt:${s.id}`} onClick={() => adopt(s.id)} title="拷贝本体进仓库并接管后续版本（EK-03）">
               收编
@@ -244,11 +258,17 @@ function ReposAndSources({ repos, sources, reload, onRegister }: { repos: RepoVi
   return (
     <>
       <EntityList
-        title="来源与仓库"
+        title="仓库"
         items={items}
-        toolbar={<Button size="sm" variant="ghost" onClick={onRegister}>登记库</Button>}
-        empty={<EmptyState title="暂无来源与仓库" hint="点击「登记库」添加自有仓库或第三方技能库。" />}
+        toolbar={<Button size="sm" variant="ghost" onClick={() => setCreateOpen(true)}>登记仓库</Button>}
+        empty={<EmptyState title="暂无仓库" hint="点击「登记仓库」添加自有仓库或第三方仓库。" />}
         hideToggle
+      />
+      <WarehouseModal
+        open={createOpen || !!editTarget}
+        target={editTarget}
+        onClose={() => { setCreateOpen(false); setEditTarget(null); }}
+        onDone={() => { setCreateOpen(false); setEditTarget(null); reload(); }}
       />
       <CollectModal repo={collectFor} onClose={() => setCollectFor(null)} onDone={() => { setCollectFor(null); reload(); }} />
     </>
@@ -316,31 +336,108 @@ function CollectModal({ repo, onClose, onDone }: { repo: RepoView | null; onClos
   );
 }
 
-/* 登记自有仓库 / 第三方库 的统一入口 */
-function RegisterModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+/** 仓库表单草稿：两类仓库共用同一套字段 */
+interface WarehouseDraft {
+  kind: 'repo' | 'source';
+  id: string;
+  name: string;
+  path: string;
+  layout: string;
+  root: string;
+  linked: boolean;
+}
+
+const EMPTY_DRAFT: WarehouseDraft = { kind: 'repo', id: '', name: '', path: '', layout: 'auto', root: '', linked: true };
+
+/** 自有仓库缺省扫描 <路径>/skills */
+function skillsRootOf(p: string): string {
+  const t = p.trim();
+  return t ? `${t.replace(/\/+$/, '')}/skills` : '';
+}
+
+function draftFrom(target: WarehouseTarget | null | undefined): WarehouseDraft {
+  if (!target) return EMPTY_DRAFT;
+  if (target.kind === 'source') {
+    return { kind: 'source', id: target.id, name: target.name ?? '', path: target.path, layout: target.layout, root: '', linked: target.linked };
+  }
+  return { kind: 'repo', id: target.id, name: target.name ?? '', path: target.path, layout: target.layout, root: target.root ?? '', linked: true };
+}
+
+/**
+ * 登记 / 编辑仓库（自有与第三方共用一套表单）。
+ *
+ * 编辑既有仓库时可切换「自有 / 第三方」定位。两类仓库的扫描根不同
+ * （自有 = root ?? <路径>/skills，第三方 = 路径本身），因此切换类型时同步换算路径，
+ * 保证改定位后扫描根不变、技能不会「消失」：
+ * - 自有 → 第三方：把当前扫描根写进路径（root 的语义被吸收）
+ * - 第三方 → 自有：把当前路径同时记为 root，显式声明扫描根就是该目录
+ */
+function WarehouseModal({
+  open,
+  target,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  target?: WarehouseTarget | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const toast = useToast();
-  const [kind, setKind] = useState<'repo' | 'source'>('repo');
-  const [id, setId] = useState('');
-  const [name, setName] = useState('');
-  const [path, setPath] = useState('');
-  const [layout, setLayout] = useState('auto');
-  const [root, setRoot] = useState('');
-  const [linked, setLinked] = useState(true);
+  const editing = !!target;
+  const [d, setD] = useState<WarehouseDraft>(EMPTY_DRAFT);
   const [busy, setBusy] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
+
+  // 每次打开时载入目标值（新建则重置），避免残留上一次的输入
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setD(draftFrom(target));
+  }
+
+  const set = <K extends keyof WarehouseDraft>(k: K, v: WarehouseDraft[K]) =>
+    setD((prev) => ({ ...prev, [k]: v }));
+
+  const switchKind = (k: 'repo' | 'source') => {
+    if (k === d.kind) return;
+    setD((prev) => {
+      const p = prev.path.trim();
+      if (k === 'source') {
+        return { ...prev, kind: k, path: prev.root.trim() || skillsRootOf(p), root: '' };
+      }
+      return { ...prev, kind: k, root: p };
+    });
+  };
+
+  // 把真实扫描根摊开给用户看，避免「改了定位却扫不到技能」
+  const scanRoot = d.kind === 'repo' ? (d.root.trim() || skillsRootOf(d.path) || '—') : (d.path.trim() || '—');
 
   const submit = async () => {
     setBusy(true);
     try {
-      if (!id || !path) throw new Error('ID 与路径必填');
-      if (kind === 'repo') {
-        await api('/repos', { method: 'POST', body: JSON.stringify({ id, path, layout, root: root || undefined }) });
-        toast.push(`已登记自有仓库 ${id}`, 'good');
+      if (!d.id.trim() || !d.path.trim()) throw new Error('标识与路径必填');
+      const id = d.id.trim();
+      if (d.kind === 'repo') {
+        const body = { name: d.name.trim() || undefined, path: d.path.trim(), layout: d.layout, root: d.root.trim() || undefined };
+        if (editing) {
+          await api(`/repos/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ ...body, kind: 'repo' }) });
+        } else {
+          await api('/repos', { method: 'POST', body: JSON.stringify({ id, ...body }) });
+        }
       } else {
-        await api('/sources', { method: 'POST', body: JSON.stringify({ id, name, path, layout, linked }) });
-        toast.push(`已登记第三方库 ${id}`, 'good');
+        const name = d.name.trim() || id;
+        const path = d.path.trim();
+        if (editing) {
+          await api(`/sources/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name, path, layout: d.layout, linked: d.linked, root: d.root.trim() || undefined, kind: 'source' }),
+          });
+        } else {
+          await api('/sources', { method: 'POST', body: JSON.stringify({ id, name, path, layout: d.layout, linked: d.linked }) });
+        }
       }
-      setId(''); setName(''); setPath(''); setRoot(''); setLinked(true); setLayout('auto');
-      onDone(); onClose();
+      toast.push(editing ? '仓库已更新' : `已登记${d.kind === 'repo' ? '自有仓库' : '第三方仓库'} ${id}`, 'good');
+      onDone();
     } catch (e) {
       toast.push(e instanceof Error ? e.message : String(e), 'bad');
     } finally {
@@ -351,47 +448,84 @@ function RegisterModal({ open, onClose, onDone }: { open: boolean; onClose: () =
   return (
     <Modal
       open={open}
-      title="登记来源与仓库"
+      title={editing ? '编辑仓库' : '登记仓库'}
       onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>取消</Button><Button variant="primary" loading={busy} onClick={submit}>登记</Button></>}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>取消</Button>
+          <Button variant="primary" loading={busy} disabled={!d.id.trim() || !d.path.trim()} onClick={submit}>
+            {editing ? '保存' : '登记'}
+          </Button>
+        </>
+      }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-          {(['repo', 'source'] as const).map((k) => (
-            <Button key={k} size="sm" variant={kind === k ? 'primary' : 'ghost'} onClick={() => setKind(k)}>
-              {k === 'repo' ? '自有仓库' : '第三方技能库'}
-            </Button>
-          ))}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
-          <FieldInput label="ID（唯一）" placeholder="my-lib" value={id} onChange={(e) => setId(e.target.value)} />
-          {kind === 'source' ? (
-            <FieldInput label="名称" placeholder="第三方库" value={name} onChange={(e) => setName(e.target.value)} />
-          ) : (
-            <FieldSelect label="布局" value={layout} onChange={(e) => setLayout(e.target.value)}>
-              <option value="auto">auto（自动检测）</option>
-              <option value="flat">flat（扁平）</option>
-              <option value="nested">nested（嵌套分类）</option>
-            </FieldSelect>
+        <div>
+          <span className="field-label">类型</span>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+            {(['repo', 'source'] as const).map((k) => (
+              <Button key={k} size="sm" variant={d.kind === k ? 'primary' : 'ghost'} onClick={() => switchKind(k)}>
+                {k === 'repo' ? '自有仓库' : '第三方仓库'}
+              </Button>
+            ))}
+          </div>
+          {editing && target && d.kind !== target.kind && (
+            <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', marginTop: 'var(--sp-2)', lineHeight: 1.6 }}>
+              从{target.kind === 'repo' ? '自有仓库' : '第三方仓库'}改为{d.kind === 'repo' ? '自有仓库' : '第三方仓库'}。
+              标识 <span className="mono">{target.id}</span> 保持不变，技能引用（标签 / 预设 / 项目）不受影响；路径已按新类型的扫描规则自动换算。
+            </div>
           )}
         </div>
-        <PathField label="路径" placeholder="/path/to/library" value={path} onChange={setPath} />
-        {kind === 'repo' ? (
-          <FieldInput label="root（可选）" hint="skills 根目录，缺省 <path>/skills" placeholder="skills" value={root} onChange={(e) => setRoot(e.target.value)} />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)', alignItems: 'flex-end' }}>
-            <FieldSelect label="布局" value={layout} onChange={(e) => setLayout(e.target.value)}>
-              <option value="auto">auto（自动检测）</option>
-              <option value="nested">nested（嵌套分类）</option>
-              <option value="flat">flat（扁平）</option>
-            </FieldSelect>
-            <label className="switch" style={{ cursor: 'pointer' }}>
-              <input type="checkbox" checked={linked} onChange={(e) => setLinked(e.target.checked)} />
-              <span className="switch__track" />
-              <span style={{ marginLeft: 'var(--sp-2)', color: 'var(--c-ink-2)', fontSize: 'var(--fs-13)' }}>只读关联</span>
-            </label>
-          </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+          <FieldInput
+            label="标识 ID"
+            placeholder="my-lib"
+            value={d.id}
+            readOnly={editing}
+            hint={editing ? '不可修改：参与技能标识 name@id' : undefined}
+            onChange={(e) => set('id', e.target.value)}
+          />
+          <FieldInput
+            label="名称"
+            placeholder="缺省与 ID 相同"
+            value={d.name}
+            onChange={(e) => set('name', e.target.value)}
+          />
+        </div>
+
+        <PathField label="路径" placeholder="/path/to/library" value={d.path} onChange={(v) => set('path', v)} />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)', alignItems: 'flex-end' }}>
+          <FieldSelect label="布局" value={d.layout} onChange={(e) => set('layout', e.target.value)}>
+            <option value="auto">auto（自动检测）</option>
+            <option value="nested">nested（嵌套分类）</option>
+            <option value="flat">flat（扁平）</option>
+          </FieldSelect>
+          {d.kind === 'source' && (
+            <SwitchLabel
+              checked={d.linked}
+              onChange={(v) => set('linked', v)}
+              title="只读关联：不拷贝本体，上游保持干净；需要接管时再点「收编」"
+            >
+              只读关联
+            </SwitchLabel>
+          )}
+        </div>
+
+        {d.kind === 'repo' && (
+          <FieldInput
+            label="root（可选）"
+            hint="skills 根目录，缺省 <路径>/skills"
+            placeholder="skills"
+            value={d.root}
+            onChange={(e) => set('root', e.target.value)}
+          />
         )}
+
+        <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
+          技能扫描根：<span className="mono">{scanRoot}</span>
+        </div>
       </div>
     </Modal>
   );

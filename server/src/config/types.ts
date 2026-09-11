@@ -5,16 +5,18 @@ export type SyncMode = 'symlink' | 'copy';
 /** Agent 管理模式 */
 export type AgentManageMode = 'preset' | 'manual';
 
-/** 个人 skill 资产库仓库 */
+/** 自有仓库：个人 skill 资产库本体 */
 export interface Repo {
   id: string;
+  /** 显示名称，缺省回落到 id。id 参与 skill 标识（name@id），不可变 */
+  name?: string;
   path: string;
   /** 真实 skills 根目录，缺省 <path>/skills */
   root?: string;
   layout: Layout;
 }
 
-/** 第三方 skill 库（开放内容库） */
+/** 第三方仓库：外部 / 上游的开放内容库 */
 export interface ForeignSource {
   id: string;
   name: string;

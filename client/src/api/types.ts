@@ -41,7 +41,9 @@ export interface StateView {
   customAgents: CustomAgentView[];
   settings: SettingsView;
 }
-export interface RepoView { id: string; path: string; layout: string; root?: string }
+/** 自有仓库；id 参与 skill 标识（name@id）不可变，name 仅作显示、缺省回落 id */
+export interface RepoView { id: string; name?: string; path: string; layout: string; root?: string }
+/** 第三方仓库 */
 export interface SourceView { id: string; name: string; path: string; layout: string; linked: boolean }
 
 /* ---------- 统一技能展示契约（三处上下文共用） ---------- */

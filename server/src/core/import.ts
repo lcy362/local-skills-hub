@@ -64,7 +64,7 @@ export function importDirs(cfg: ConfigStore, sourceDirs: string[], repoId?: stri
 }
 
 /**
- * 收编第三方库（EK-03）：把「只读关联」的外部 skill 库拷贝进仓库本体并接管后续版本。
+ * 收编第三方仓库（EK-03）：把「只读关联」的外部 skill 库拷贝进仓库本体并接管后续版本。
  * 收编后该来源标记 linked=false，本体由仓库持有；同名 skill 去重跳过。
  */
 export function adoptSource(cfg: ConfigStore, sourceId: string, repoId?: string): { repo: string; imported: string[]; skipped: string[] } {
