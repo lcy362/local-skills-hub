@@ -4,6 +4,7 @@ import { ConfigStore } from '../config/store.js';
 import { Skill } from './skill.js';
 import { effectiveTags } from './tags.js';
 import { findAgentDef, resolveGlobalDir, expandTilde } from './agents.js';
+import { log } from '../infra/logger.js';
 
 export interface SyncResult {
   agent: string;
@@ -182,6 +183,7 @@ export function deployAgent(cfg: ConfigStore, agentKey: string, desired: Map<str
       }
       result.created.push(sk.id);
     } catch (e) {
+      log.warn('sync', `部署 ${sk.id} 失败`, { agent: agentKey, reason: (e as Error).message });
       result.failed.push({ skill: sk.id, reason: (e as Error).message });
     }
   }
@@ -198,13 +200,33 @@ export function deployAgent(cfg: ConfigStore, agentKey: string, desired: Map<str
       }
     } catch { /* skip */ }
   }
+  if (result.created.length || result.removed.length || result.failed.length) {
+    log.info('sync', `agent 同步完成`, {
+      agent: agentKey,
+      created: result.created.length,
+      removed: result.removed.length,
+      failed: result.failed.length,
+    });
+  }
   return result;
 }
 
 /** 触发式同步：将指定（默认活跃）agent 各按自身管理模式同步到期望 skill 集合 */
-export function syncActive(cfg: ConfigStore, allSkills: Skill[], only?: string[]): SyncResult[] {
+export function syncActive(cfg: ConfigStore, allSkills: Skill[], only?: string[], reason: string = 'manual'): SyncResult[] {
   const targets = only ?? cfg.data.activeAgents;
-  return targets.map((k) => deployAgent(cfg, k, computeDesired(cfg, allSkills, k), allSkills));
+  const results = targets.map((k) => deployAgent(cfg, k, computeDesired(cfg, allSkills, k), allSkills));
+  const created = results.reduce((n, r) => n + r.created.length, 0);
+  const removed = results.reduce((n, r) => n + r.removed.length, 0);
+  const failed = results.flatMap((r) => r.failed);
+  const warnings = results.flatMap((r) => r.warnings ?? []);
+  if (targets.length > 0) {
+    log.info('sync', `同步完成（触发：${reason}）`, {
+      agents: targets.length, created, removed,
+      failed: failed.length, warnings: warnings.length,
+      failedDetail: failed.length ? failed : undefined,
+    });
+  }
+  return results;
 }
 
 export interface SyncDiff {

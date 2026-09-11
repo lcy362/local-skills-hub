@@ -6,6 +6,7 @@ import { diffSync } from './sync.js';
 import { Skill } from './skill.js';
 import { Candidate } from './integrate.js';
 import { CONFIG_PATH } from '../config/defaults.js';
+import { log } from '../infra/logger.js';
 
 export type DiagStatus = 'ok' | 'warn' | 'error';
 
@@ -163,6 +164,7 @@ export function diagnose(cfg: ConfigStore, deps: Deps): DiagnoseResult {
       error: arr.filter((x) => x.status === 'error').length,
     };
   }
+  log.info('diagnose', '诊断完成', summary);
 
   return { config: CONFIG_PATH, summary, groups, items };
 }

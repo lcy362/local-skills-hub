@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { ConfigStore } from '../infra/config-store.js';
+import { log } from '../infra/logger.js';
 import { pickDirectory, pickFile } from '../infra/picker.js';
 import { listAgents, agentSkillRows, findAgentDef, resolveGlobalDir } from '../core/agents.js';
 import { scanAll, detectLayoutAbs } from '../core/scanner.js';
@@ -21,9 +23,42 @@ import { mergeSkill } from '../core/merge.js';
 import { Repo, ForeignSource, CustomAgent } from '../config/types.js';
 import { agentCards, projectCards } from '../domain/cards.js';
 
+/** server 版本号，/api/logs 上报给用户用于 issue 定位（优先 cwd，兼容 dev 的 src 路径） */
+const SERVER_VERSION = (() => {
+  const candidates = [
+    path.join(process.cwd(), 'package.json'),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../package.json'),
+  ];
+  for (const pkg of candidates) {
+    try {
+      const v = (JSON.parse(fs.readFileSync(pkg, 'utf-8')) as { version?: string }).version;
+      if (v) return v;
+    } catch { /* 尝试下一个候选 */ }
+  }
+  return '0.0.0';
+})();
+
 export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; onConfigChanged?: () => void }): Router {
   const r = Router();
   r.use(express.json({ limit: '2mb' }));
+
+  // 请求日志：记录 method、path、status、耗时与 body 字段名（不记值，避免敏感信息落盘）
+  r.use((req, res, next) => {
+    if (req.path.startsWith('/logs')) return next();
+    const started = Date.now();
+    res.on('finish', () => {
+      const body = req.body as unknown;
+      const bodyKeys = body && typeof body === 'object'
+        ? Object.keys(body as Record<string, unknown>)
+        : undefined;
+      log.info('http', `${req.method} ${req.originalUrl.split('?')[0]}`, {
+        status: res.statusCode,
+        ms: Date.now() - started,
+        ...(bodyKeys && bodyKeys.length ? { bodyKeys } : {}),
+      });
+    });
+    next();
+  });
   // 结构性变更后自动同步活跃 agent，由入口注入实现
   const touch = () => opts?.onChanged?.();
   const touchConfig = () => opts?.onConfigChanged?.();
@@ -72,8 +107,12 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     try {
       const result = mergeSkill(cfg, library().skills, String(name), String(keepSource));
       touch();
+      log.info('http', '技能合并仲裁', { name: String(name), keepSource: String(keepSource), merged: result.merged.length });
       res.json(result);
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+    } catch (e) {
+      log.error('http', `技能合并仲裁失败: ${(e as Error).message}`, { name: String(name), keepSource: String(keepSource) });
+      res.status(400).json({ error: (e as Error).message });
+    }
   });
 
   // SKILL.md 预览（UI-03 资产库详情）
@@ -156,8 +195,14 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
   r.post('/repos/:id/tags-migrate', (req, res) => {
     const repo = cfg.data.repos.find((x) => x.id === req.params.id);
     if (!repo) return res.status(404).json({ error: 'repo not found' });
-    try { res.json(migrateTagsToFrontmatter(cfg, repo)); }
-    catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    try {
+      const result = migrateTagsToFrontmatter(cfg, repo);
+      log.info('http', '标签迁移到 SKILL.md', { repo: repo.id, migrated: result.migrated, skipped: result.skipped.length });
+      res.json(result);
+    } catch (e) {
+      log.error('http', `标签迁移失败: ${(e as Error).message}`, { repo: repo.id });
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
 
   r.post('/repos/detect', (req, res) => {
@@ -195,19 +240,32 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     try {
       const results = sel.map((s) => collectAgentSkill(cfg, repo, s.agentKey, s.names, repl));
       touch();
+      const collected = results.flatMap((x) => x.collected);
+      const skipped = results.flatMap((x) => x.skipped);
+      log.info('http', '归集技能到仓库', { repo: repo.id, collected: collected.length, skipped: skipped.length });
       res.json({
-        collected: results.flatMap((x) => x.collected),
-        skipped: results.flatMap((x) => x.skipped),
+        collected,
+        skipped,
         byAgent: results.map((x, i) => ({ agent: sel[i].agentKey, ...x })),
       });
-    } catch (e) { res.status(500).json({ error: String(e) }); }
+    } catch (e) {
+      log.error('http', `归集技能失败: ${String(e)}`, { repo: repo.id });
+      res.status(500).json({ error: String(e) });
+    }
   });
 
   // 接管：把 agent 源 skill 替换为指向仓库副本的软链（源改名备份，需显式 confirm）
   r.post('/repos/:id/takeover', (req, res) => {
     const { agentKey, name, confirm } = req.body ?? {};
     if (!agentKey || !name) return res.status(400).json({ error: 'agentKey/name required' });
-    res.json(takeover(cfg, String(agentKey), String(name), req.params.id, confirm === true));
+    try {
+      const result = takeover(cfg, String(agentKey), String(name), req.params.id, confirm === true);
+      log.info('http', '接管 agent 技能', { repo: req.params.id, agentKey: String(agentKey), name: String(name), confirm: confirm === true });
+      res.json(result);
+    } catch (e) {
+      log.error('http', `接管失败: ${(e as Error).message}`, { repo: req.params.id, agentKey: String(agentKey), name: String(name) });
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
 
   // ---- foreign sources ----
@@ -360,6 +418,7 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     const keys = Array.isArray(req.body) ? req.body : req.body?.agents;
     const out = active.set(cfg, keys ?? []);
     touch();
+    log.info('http', '更新活跃 agent 集合', { agents: out.length });
     res.json(out);
   });
 
@@ -390,29 +449,44 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
       if (typeof req.body?.active === 'boolean') p.active = req.body.active;
       cfg.save();
       touch();
+      log.info('http', '创建预设', { name, skills: p.skills.length, tags: p.tags.length, active: p.active });
       res.json(p);
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+    } catch (e) {
+      log.error('http', `创建预设失败: ${(e as Error).message}`, { name: String(req.body?.name ?? '') });
+      res.status(400).json({ error: (e as Error).message });
+    }
   });
   r.put('/presets/:name', (req, res) => {
     try {
       const p = presets.update(cfg, req.params.name, req.body ?? {});
       const lib = library();
-      syncActive(cfg, lib.skills);
+      const results = syncActive(cfg, lib.skills, undefined, 'route');
+      const created = results.reduce((n, r) => n + r.created.length, 0);
+      const removed = results.reduce((n, r) => n + r.removed.length, 0);
+      log.info('http', '更新预设', { name: req.params.name, skills: p.skills.length, tags: p.tags.length, created, removed });
       res.json(p);
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+    } catch (e) {
+      log.error('http', `更新预设失败: ${(e as Error).message}`, { name: req.params.name });
+      res.status(400).json({ error: (e as Error).message });
+    }
   });
   r.post('/presets/:name/activate', (req, res) => {
     try {
       const activeFlag = req.body?.active !== false;
       const changed = presets.setActive(cfg, req.params.name, activeFlag);
       const lib = library();
-      const results = syncActive(cfg, lib.skills);
+      const results = syncActive(cfg, lib.skills, undefined, 'route');
+      log.info('http', '预设激活切换', { name: req.params.name, active: activeFlag, changed });
       res.json({ changed, results });
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
+    } catch (e) {
+      log.error('http', `预设激活失败: ${(e as Error).message}`, { name: req.params.name });
+      res.status(400).json({ error: (e as Error).message });
+    }
   });
   r.delete('/presets/:name', (req, res) => {
     presets.remove(cfg, req.params.name);
     touch();
+    log.info('http', '删除预设', { name: req.params.name });
     res.json({ ok: true });
   });
 
@@ -451,8 +525,13 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     if (!proj) return res.status(404).json({ error: 'project not found' });
     const { repoId, names } = req.body ?? {};
     try {
-      res.json(pushProjectToRepo(cfg, proj.path, repoId ? String(repoId) : undefined, Array.isArray(names) ? names : undefined));
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+      const result = pushProjectToRepo(cfg, proj.path, repoId ? String(repoId) : undefined, Array.isArray(names) ? names : undefined);
+      log.info('http', '项目技能回写仓库', { repo: repoId ? String(repoId) : undefined, names: Array.isArray(names) ? names.length : undefined });
+      res.json(result);
+    } catch (e) {
+      log.error('http', `项目技能回写失败: ${(e as Error).message}`, { proj: proj.path });
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
   r.get('/projects/:id/skills', (req, res) => {
     const id = Number(req.params.id);
@@ -520,9 +599,17 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
         ? String(req.body.path).split('\n').map((s: string) => s.trim()).filter(Boolean)
         : [];
     const repoId = req.body?.repoId;
-    const result = importDirs(cfg, dirs, repoId);
-    touch();
-    res.json(result);
+    try {
+      const result = importDirs(cfg, dirs, repoId);
+      touch();
+      const imported = result.reduce((n, x) => n + x.imported.length, 0);
+      const skipped = result.reduce((n, x) => n + x.skipped.length, 0);
+      log.info('http', '批量导入技能', { dirs: dirs.length, repo: repoId ?? undefined, imported, skipped });
+      res.json(result);
+    } catch (e) {
+      log.error('http', `批量导入失败: ${(e as Error).message}`, { dirs: dirs.length, repo: repoId ?? undefined });
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
   r.get('/diagnose', (_req, res) => {
     try {
@@ -542,8 +629,12 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
       const lib = library();
       const result = applyFix(cfg, { lib }, String(key));
       touch();
+      log.info('http', '诊断项就地修复', { key: String(key) });
       res.json(result);
-    } catch (e) { res.status(500).json({ error: (e as Error).message }); }
+    } catch (e) {
+      log.error('http', `诊断项修复失败: ${(e as Error).message}`, { key: String(key) });
+      res.status(500).json({ error: (e as Error).message });
+    }
   });
 
   // ---- sync ----
@@ -552,10 +643,41 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     res.json(diffSync(cfg, lib.skills));
   });
   r.post('/sync', (req, res) => {
-    const lib = library();
-    const only = Array.isArray(req.body?.agents) ? req.body.agents : undefined;
-    const results = syncActive(cfg, lib.skills, only);
-    res.json(results);
+    try {
+      const lib = library();
+      const only = Array.isArray(req.body?.agents) ? req.body.agents : undefined;
+      const results = syncActive(cfg, lib.skills, only, 'route');
+      const created = results.reduce((n, r) => n + r.created.length, 0);
+      const removed = results.reduce((n, r) => n + r.removed.length, 0);
+      log.info('http', '手动同步', { agents: results.length, created, removed });
+      res.json(results);
+    } catch (e) {
+      log.error('http', `手动同步失败: ${(e as Error).message}`);
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  // ---- logs（开源后用户复制/下载上报问题） ----
+  r.get('/logs', (req, res) => {
+    const tail = Math.max(1, Math.min(Number(req.query.tail) || 200, 1000));
+    const logPath = log.getPath();
+    let lines: string[] = [];
+    let size = 0;
+    try {
+      if (fs.existsSync(logPath)) {
+        size = fs.statSync(logPath).size;
+        lines = fs.readFileSync(logPath, 'utf-8').split('\n').filter(Boolean).slice(-tail);
+      }
+    } catch (e) {
+      log.error('http', `读取日志失败: ${(e as Error).message}`);
+      return res.status(500).json({ error: (e as Error).message });
+    }
+    res.json({ path: logPath, size, lines, version: SERVER_VERSION });
+  });
+  r.get('/logs/download', (_req, res) => {
+    const logPath = log.getPath();
+    if (!fs.existsSync(logPath)) return res.status(404).json({ error: 'no log file' });
+    res.download(logPath, 'skills-hub.log');
   });
 
   return r;

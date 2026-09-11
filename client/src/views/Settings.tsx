@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { api, type AgentView, type CustomAgentView, type SettingsView } from '../api/types';
+import { api, type AgentView, type CustomAgentView, type LogView, type SettingsView } from '../api/types';
 import EntityList from '../components/common/EntityList';
 import FilterBar from '../components/common/FilterBar';
 import PageHeader from '../components/ui/PageHeader';
@@ -25,6 +25,7 @@ export default function Settings() {
   const { data: settings, reload: reloadSettings } = useAsync<SettingsView>(() => api('/settings'));
   const { data: customs, reload: reloadCustoms } = useAsync<CustomAgentView[]>(() => api('/agents/custom'));
   const { data: activeRes, reload: reloadActive } = useAsync<string[]>(() => api('/activeAgents'));
+  const { data: logs, reload: reloadLogs } = useAsync<LogView>(() => api('/logs?tail=300'));
   const toast = useToast();
   // 筛选条件随地址持久化，刷新后保持当前页面的查看状态
   const [q, setQ] = useQueryParam('q');
@@ -64,6 +65,48 @@ export default function Settings() {
       await api('/settings', { method: 'PUT', body: JSON.stringify(patch) });
       toast.push('设置已保存', 'good');
       reloadSettings(); reload();
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : String(e), 'bad');
+    }
+  };
+
+  /** 下载服务端日志文件（供 issue 上报） */
+  const downloadLogs = async () => {
+    try {
+      const res = await fetch('/api/logs/download');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'skills-hub.log';
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.push('日志已下载', 'good');
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : String(e), 'bad');
+    }
+  };
+
+  /** 一键复制诊断信息（markdown），直接粘贴到 GitHub issue */
+  const copyDiag = async () => {
+    const md = [
+      '# skills-hub 诊断信息',
+      '',
+      `- 版本：${logs?.version ?? '?'}`,
+      `- 平台：${navigator.platform}`,
+      `- 浏览器：${navigator.userAgent}`,
+      `- 服务端日志路径：${logs?.path ?? '?'}`,
+      `- 服务端日志大小：${logs?.size ?? 0} bytes`,
+      '',
+      '## 最近日志',
+      '```',
+      ...(logs?.lines ?? []),
+      '```',
+    ].join('\n');
+    try {
+      await navigator.clipboard.writeText(md);
+      toast.push('已复制，可在 GitHub issue 中粘贴', 'good');
     } catch (e) {
       toast.push(e instanceof Error ? e.message : String(e), 'bad');
     }
@@ -183,6 +226,42 @@ export default function Settings() {
             }))}
           />
         )}
+      </div>
+
+      <div className="panel">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
+          <span className="page-head__title" style={{ fontSize: 'var(--fs-16)' }}>日志</span>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+            <Button size="sm" variant="ghost" onClick={() => reloadLogs()}>刷新</Button>
+            <Button size="sm" variant="ghost" onClick={() => void downloadLogs()}>下载日志</Button>
+            <Button size="sm" onClick={() => void copyDiag()}>复制诊断信息</Button>
+          </div>
+        </div>
+        <p style={{ color: 'var(--c-ink-2)', fontSize: 'var(--fs-13)', marginBottom: 'var(--sp-3)' }}>
+          遇到问题时可下载完整日志或复制诊断信息，粘贴到 GitHub issue 即可上报；日志会脱敏本地路径。
+        </p>
+        <LoadingBoundary state={{ loading: !logs, error: undefined, data: logs }} empty={{ title: '暂无日志', icon: '▤' }}>
+          {(lg) => (
+            <>
+              <div className="mono" style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-2)', marginBottom: 'var(--sp-2)' }}>
+                {lg.path} · {lg.size} bytes · v{lg.version}
+              </div>
+              <pre style={{
+                maxHeight: 360,
+                overflow: 'auto',
+                margin: 0,
+                padding: 'var(--sp-3)',
+                background: 'var(--c-bg-2)',
+                border: '1px solid var(--c-line)',
+                borderRadius: 'var(--r-md)',
+                fontSize: 'var(--fs-12)',
+                lineHeight: 1.6,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+              }}>{lg.lines.join('\n') || '（暂无日志内容）'}</pre>
+            </>
+          )}
+        </LoadingBoundary>
       </div>
 
       <AddAgentModal open={addOpen} onClose={() => setAddOpen(false)} onDone={() => { setAddOpen(false); reloadCustoms(); reload(); }} />

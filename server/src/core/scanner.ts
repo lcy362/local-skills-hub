@@ -3,6 +3,7 @@ import path from 'node:path';
 import { Repo, ForeignSource, Layout } from '../config/types.js';
 import { Skill, readSkill, hasSkill } from './skill.js';
 import { expandTilde } from './agents.js';
+import { log } from '../infra/logger.js';
 
 /**
  * 扫描一个根目录下的 skill。
@@ -128,16 +129,19 @@ function scanRoot(root: string, source: string, layout: Layout): Skill[] {
 
 export function scanRepo(repo: Repo): { source: string; path: string; skills: Skill[] } {
   const root = repo.root ? expandTilde(repo.root) : path.join(expandTilde(repo.path), 'skills');
+  if (!fs.existsSync(root)) log.warn('scanner', `仓库目录不存在，跳过`, { source: repo.id, path: root });
   return { source: repo.id, path: root, skills: scanRoot(root, repo.id, repo.layout) };
 }
 
 export function scanForeign(src: ForeignSource): { source: string; path: string; skills: Skill[] } {
   const root = expandTilde(src.path);
+  if (!fs.existsSync(root)) log.warn('scanner', `外部来源目录不存在，跳过`, { source: src.id, path: root });
   return { source: src.id, path: root, skills: scanRoot(root, src.id, src.layout) };
 }
 
 /** 聚合所有仓库与外部来源的 skill */
 export function scanAll(repos: Repo[], sources: ForeignSource[]) {
+  const started = Date.now();
   const bySource = new Map<string, { path: string; skills: Skill[] }>();
   for (const r of repos) {
     const res = scanRepo(r);
@@ -148,5 +152,6 @@ export function scanAll(repos: Repo[], sources: ForeignSource[]) {
     bySource.set(res.source, { path: res.path, skills: res.skills });
   }
   const skills = [...bySource.values()].flatMap((x) => x.skills);
+  log.debug('scanner', '扫描完成', { sources: bySource.size, skills: skills.length, ms: Date.now() - started });
   return { bySource, skills };
 }

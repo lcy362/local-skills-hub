@@ -1,11 +1,21 @@
+import { log } from '../log/logger';
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    });
+  } catch (e) {
+    log.error('api', `请求失败: ${(e as Error).message}`, { method: init?.method ?? 'GET', path });
+    throw e;
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as any)?.error ?? `HTTP ${res.status}`);
+    const message = (body as any)?.error ?? `HTTP ${res.status}`;
+    log.error('api', `请求失败`, { method: init?.method ?? 'GET', path, status: res.status, message });
+    throw new Error(message);
   }
   return res.json() as Promise<T>;
 }
@@ -105,3 +115,6 @@ export interface AgentCollectItem {
 export interface AgentCollectPreview { agentKey: string; agentName: string; installedDir: string; items: AgentCollectItem[] }
 export interface CollectResult { collected: string[]; skipped: string[] }
 export interface SkillContent { id: string; dir: string; content: string; files: string[] }
+
+/* ---------- 日志 ---------- */
+export interface LogView { path: string; size: number; lines: string[]; version: string }

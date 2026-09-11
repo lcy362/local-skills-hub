@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HubConfig, emptyConfig } from './types.js';
 import { CONFIG_PATH } from './defaults.js';
+import { log } from '../infra/logger.js';
 
 /**
  * 旧版 agent key → PRD §5.2.1 约定 key。
@@ -39,7 +40,10 @@ export class ConfigStore {
     let parsed: Partial<HubConfig> = {};
     try {
       parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as Partial<HubConfig>;
-    } catch {
+    } catch (e) {
+      // 首次运行（文件不存在，ENOENT）属正常；存在但解析失败（SyntaxError）需提示
+      const missing = (e as NodeJS.ErrnoException).code === 'ENOENT';
+      (missing ? log.info : log.warn)('config', `配置文件${missing ? '不存在，按默认值启动' : `解析失败，按默认值启动: ${(e as Error).message}`}`, { file: this.filePath });
       parsed = {};
     }
     const cfg: HubConfig = {
@@ -59,6 +63,7 @@ export class ConfigStore {
     } as HubConfig;
     this.migrateAgentKeys(cfg);
     if (cfg.schemaVersion !== emptyConfig().schemaVersion) {
+      log.info('config', `schemaVersion 迁移 ${cfg.schemaVersion} → ${emptyConfig().schemaVersion}`, { file: this.filePath });
       cfg.schemaVersion = emptyConfig().schemaVersion;
       this.cfg = cfg;
       this.save();
@@ -67,8 +72,13 @@ export class ConfigStore {
   }
 
   save(): void {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify(this.cfg, null, 2), 'utf-8');
+    try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.writeFileSync(this.filePath, JSON.stringify(this.cfg, null, 2), 'utf-8');
+    } catch (e) {
+      log.error('config', `保存配置失败: ${(e as Error).message}`, { file: this.filePath });
+      throw e;
+    }
   }
 
   get data(): HubConfig { return this.cfg; }

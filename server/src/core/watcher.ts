@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ConfigStore } from '../config/store.js';
 import { expandTilde } from './agents.js';
+import { log } from '../infra/logger.js';
 
 /**
  * 复制模式的增量同步 watcher（SY-04）。
@@ -26,22 +27,27 @@ export class CopyWatcher {
 
   start(cfg: ConfigStore, onChange: () => void): void {
     this.stop();
-    if (!CopyWatcher.shouldRun(cfg)) return;
+    if (!CopyWatcher.shouldRun(cfg)) {
+      log.info('watcher', '未启用（需开关打开且存在复制模式 agent）');
+      return;
+    }
     this.onChange = onChange;
     const roots = cfg.data.repos
       .map((r) => (r.root ? expandTilde(r.root) : path.join(expandTilde(r.path), 'skills')))
       .filter((p) => fs.existsSync(p));
     if (roots.length === 0) return;
     this.watcher = watch(roots, { ignoreInitial: true, depth: 3, awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 } });
+    log.info('watcher', '已启用', { roots });
     const debounce = () => {
       if (this.timer) clearTimeout(this.timer);
       this.timer = setTimeout(() => this.onChange?.(), 800);
     };
-    this.watcher.on('all', debounce);
+    this.watcher.on('all', (ev, p) => { log.debug('watcher', '文件变更', { ev, path: p }); debounce(); });
   }
 
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
+    if (this.watcher) log.info('watcher', '已停止');
     this.watcher?.close().catch(() => {});
     this.watcher = undefined;
   }
