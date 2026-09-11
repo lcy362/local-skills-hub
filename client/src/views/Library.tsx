@@ -293,7 +293,7 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [adjusting, setAdjusting] = useState<string | null>(null);
-  const [step, setStep] = useState<'select' | 'confirm'>('select');
+  const [step, setStep] = useState<'select' | 'confirm' | 'final'>('select');
   /** agentKey → 已勾选的 skill 名 */
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   /** 确认页：每个技能名采纳哪个 agent 的版本 */
@@ -486,7 +486,70 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
         </div>
         <div className="modal-actions">
           <Button variant="ghost" onClick={() => setStep('select')}>返回</Button>
-          <Button variant="primary" loading={busy} onClick={run}>确认归集</Button>
+          <Button variant="primary" onClick={() => setStep('final')}>确认归集</Button>
+        </div>
+      </>
+    );
+  }
+
+  /** 最终确认：脱离上下文即可读懂的完整操作清单（复制什么到哪、删什么、什么不动） */
+  if (step === 'final') {
+    let n = 0;
+    const opItems = plan.map((p) => {
+      const dest = `${repoRootDisplay}/${p.name}`;
+      if (p.chosen === REPO_KEY) {
+        return {
+          id: p.name,
+          title: `无操作 · ${dest}`,
+          sub: '保持仓库内现有副本不变：不写入、不删除任何文件',
+          status: <Badge tone="info">保持现状</Badge>,
+        };
+      }
+      const cand = p.cands.find((c) => c.agent.agentKey === p.chosen)!;
+      const realSrc = cand.item.symlink ? (cand.item.linkTarget ?? cand.item.dir) : cand.item.dir;
+      const srcNote = cand.item.symlink
+        ? `${cand.item.dir}（软链，实际内容位于 ${realSrc}）`
+        : cand.item.dir;
+      n += 1;
+      return p.exists
+        ? {
+            id: p.name,
+            title: `${n}. 覆盖 ${dest}`,
+            sub: (
+              <span style={{ fontSize: 'var(--fs-12)' }}>
+                第一步：删除现有目录 <span className="mono">{dest}</span> 及其全部内容；
+                第二步：把 <span className="mono">{srcNote}</span> 的全部内容复制到该位置
+              </span>
+            ),
+            status: <Badge tone="warn">覆盖</Badge>,
+          }
+        : {
+            id: p.name,
+            title: `${n}. 新增 ${dest}`,
+            sub: (
+              <span style={{ fontSize: 'var(--fs-12)' }}>
+                把 <span className="mono">{srcNote}</span> 的全部内容复制到该位置（目标处当前不存在同名目录）
+              </span>
+            ),
+            status: <Badge tone="good">新增</Badge>,
+          };
+    });
+    return (
+      <>
+        <div style={{ fontSize: 'var(--fs-13)', color: 'var(--c-ink-2)' }}>
+          本次归集共 {writePlans.length} 项文件写入（新增 {writePlans.length - overwriteCount} · 覆盖现有目录 {overwriteCount}），
+          {keepCount} 项保持仓库现状。完整操作清单如下，请逐条确认：
+        </div>
+        <EntityList mode="list" toggle={false} items={opItems} />
+        <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', lineHeight: 1.7 }}>
+          以上是本次将执行的全部文件操作，除此之外：
+          <br />· 不删除、不修改任何其他文件，仓库中其余技能不受影响
+          <br />· 所有 Agent 目录（含其中的软链）不会被改动或删除
+          <br />· 复制为整目录拷贝，源位置内容保持原样
+        </div>
+        <div className="modal-actions">
+          <Button variant="ghost" onClick={() => setStep('confirm')}>返回</Button>
+          <Button variant="primary" loading={busy} onClick={run}>确认执行</Button>
         </div>
       </>
     );
