@@ -9,6 +9,8 @@ export interface AgentCollectItem {
   name: string;
   description?: string;
   tags: string[];
+  /** skill 本体目录（确认页展示「什么路径写入哪里」用） */
+  dir: string;
   /** 是否已存在于目标仓库（重名将去重跳过） */
   exists: boolean;
   /** skill 本体是否为软链（区别于真实目录存储） */
@@ -58,6 +60,7 @@ export function previewCollect(cfg: ConfigStore, repo: Repo): AgentCollectPrevie
       }
       return {
         name: s.name,
+        dir: s.dir,
         description: s.description,
         tags: s.tags,
         exists,
@@ -73,10 +76,11 @@ export function previewCollect(cfg: ConfigStore, repo: Repo): AgentCollectPrevie
 
 /**
  * 从某个 agent 目录「收集归拢」skill 到目标仓库。
- * 仅把 skill 本体复制进仓库 skills/，绝不动 agent 里的技能列表；相同名字已存在则去重跳过。
+ * 仅把 skill 本体复制进仓库 skills/，绝不动 agent 里的技能列表；相同名字已存在则去重跳过，
+ * 除非名字出现在 replaceNames（用户在确认页明确选择用 agent 版本覆盖仓库副本）。
  * names 为空表示收集该 agent 目录下全部未存在的 skill。
  */
-export function collectAgentSkill(cfg: ConfigStore, repo: Repo, agentKey: string, names?: string[]): CollectResult {
+export function collectAgentSkill(cfg: ConfigStore, repo: Repo, agentKey: string, names?: string[], replaceNames?: string[]): CollectResult {
   const a = listAgents(cfg.data).find((x) => x.key === agentKey);
   const res: CollectResult = { collected: [], skipped: [] };
   if (!a?.installed) { res.skipped.push(`(agent 未安装: ${agentKey})`); return res; }
@@ -86,7 +90,12 @@ export function collectAgentSkill(cfg: ConfigStore, repo: Repo, agentKey: string
   const want = names && names.length ? found.filter((s) => names.includes(s.name)) : found;
   for (const s of want) {
     const dest = path.join(skillsRoot, s.name);
-    if (fs.existsSync(dest)) { res.skipped.push(`${s.name}(已存在，去重跳过)`); continue; }
+    if (fs.existsSync(dest)) {
+      if (replaceNames?.includes(s.name)) {
+        try { fs.rmSync(dest, { recursive: true, force: true }); }
+        catch (e) { res.skipped.push(`${s.name}(覆盖失败: ${(e as Error).message})`); continue; }
+      } else { res.skipped.push(`${s.name}(已存在，去重跳过)`); continue; }
+    }
     try {
       fs.cpSync(s.dir, dest, { recursive: true });
       res.collected.push(s.name);

@@ -86,6 +86,8 @@ export interface IntegrateCandidate { id: string; name: string; source: string; 
 export interface IntegrateGroup { name: string; candidates: IntegrateCandidate[] }
 export interface AgentCollectItem {
   name: string;
+  /** skill 本体目录 */
+  dir: string;
   description?: string;
   tags: string[];
   exists: boolean;

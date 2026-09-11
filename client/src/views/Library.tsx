@@ -279,12 +279,15 @@ function AddSkillsModal({ repo, onClose, onDone }: { repo: RepoView | null; onCl
   );
 }
 
+/** 确认页候选里的「仓库内版本」占位 agentKey（保持现状，不写入） */
+const REPO_KEY = '__repo__';
+
 /**
  * 从 Agent 归集（IM-01）：两步流程（面板，由 AddSkillsModal 承载）。
  * 第一步按 Agent 分组（默认折叠）展示 skill 清单，标注存储形态与 Agent 接管状态；
  * 已接管但外链指向非仓库位置的 skill 可一键「调整」改指仓库本体；
- * 第二步汇总确认后写入仓库。所有技能（软链 / 真实目录、含已在仓库的同名项）均可勾选，
- * 已在仓库的项执行时自动去重跳过（不覆盖、不产生重复本体）。
+ * 第二步确认页按名字分组，仓库内版本与各 agent 版本一起作为候选（仓库已有同名时）：
+ * 选仓库版本保持现状，选 agent 版本则覆盖仓库副本；逐项展示写入路径后由用户确认。
  */
 function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
@@ -348,7 +351,7 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
     .filter((s) => s.names.length > 0);
   const totalPicked = selections.reduce((n, s) => n + s.names.length, 0);
 
-  /** 确认页按名字分组：同名技能可能勾选自多个 agent，需用户选择采纳哪个版本 */
+  /** 确认页按名字分组：同名技能可能勾选自多个 agent；仓库已有同名时，仓库内版本也作为候选 */
   const selectedGroups = useMemo(() => {
     const m = new Map<string, { agent: AgentCollectPreview; item: AgentCollectItem }[]>();
     for (const s of selections) {
@@ -359,22 +362,42 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
     }
     return [...m.entries()];
   }, [data, picked]);
-  /** 统计口径 = 确认页所选的名字中，仓库已有同名者 */
-  const existsCount = selectedGroups.filter(([, cands]) => cands[0].item.exists).length;
-  const multiSourceCount = selectedGroups.filter(([, cands]) => cands.length > 1).length;
 
-  /** 每个名字只采纳一个 agent 的版本（默认第一个候选，确认页可改选） */
+  /** 每个名字的候选与采纳结果：仓库版本默认选中（保持现状），选 agent 版本则覆盖仓库副本 */
+  const repoRootDisplay = repo.root ?? `${repo.path}/skills`;
+  const plan = selectedGroups.map(([name, cands]) => {
+    const exists = cands[0].item.exists;
+    const options = [
+      ...(exists ? [{ label: '仓库内版本（保持现状）', value: REPO_KEY }] : []),
+      ...cands.map((c) => ({ label: c.agent.agentName, value: c.agent.agentKey })),
+    ];
+    let chosen = choices[name];
+    if (!chosen || !options.some((o) => o.value === chosen)) chosen = exists ? REPO_KEY : cands[0].agent.agentKey;
+    return { name, cands, exists, options, chosen };
+  });
+  const writePlans = plan.filter((p) => p.chosen !== REPO_KEY);
+  const keepCount = plan.length - writePlans.length;
+  const overwriteCount = writePlans.filter((p) => p.exists).length;
+
   const run = async () => {
     setBusy(true);
     try {
       const byAgent: Record<string, string[]> = {};
-      for (const [name, cands] of selectedGroups) {
-        const agentKey = choices[name] ?? cands[0].agent.agentKey;
-        (byAgent[agentKey] ??= []).push(name);
+      const replaceNames: string[] = [];
+      for (const p of plan) {
+        if (p.chosen === REPO_KEY) continue;
+        (byAgent[p.chosen] ??= []).push(p.name);
+        if (p.exists) replaceNames.push(p.name);
+      }
+      const sels = Object.entries(byAgent).map(([agentKey, names]) => ({ agentKey, names }));
+      if (sels.length === 0) {
+        toast.push('全部保持仓库现状，未写入任何文件', 'good');
+        onDone();
+        return;
       }
       const res = await api<{ collected: string[]; skipped: string[] }>(
         `/repos/${encodeURIComponent(repo.id)}/collect`,
-        { method: 'POST', body: JSON.stringify({ selections: Object.entries(byAgent).map(([agentKey, names]) => ({ agentKey, names })) }) }
+        { method: 'POST', body: JSON.stringify({ selections: sels, replaceNames }) }
       );
       toast.push(`已归集 ${res.collected.length} 个技能${res.skipped.length ? `，跳过 ${res.skipped.length}` : ''}`, 'good');
       onDone();
@@ -387,50 +410,60 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
     return (
       <>
         <div style={{ fontSize: 'var(--fs-13)', color: 'var(--c-ink-2)' }}>
-          将把 <strong>{selectedGroups.length}</strong> 个技能复制进 <span className="mono">{repo.name || repo.id}</span>，agent 目录保持不动
-          {totalPicked !== selectedGroups.length && <>（已勾选 {totalPicked} 项，同名合并）</>}：
+          将把 <strong>{writePlans.length}</strong> 个技能写入 <span className="mono">{repo.name || repo.id}</span>
+          （新增 {writePlans.length - overwriteCount} · 覆盖仓库副本 {overwriteCount}），
+          {keepCount} 个保持仓库现状；已勾选 {totalPicked} 项，按名字合并为 {selectedGroups.length} 个：
         </div>
-        {multiSourceCount > 0 && (
-          <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
-            {multiSourceCount} 个技能名来自多个 Agent，请为每个名字选择采纳的版本：
-          </div>
-        )}
         <EntityList
           mode="list"
           toggle={false}
-          items={selectedGroups.map(([name, cands]) => {
-            const chosen = choices[name] ?? cands[0].agent.agentKey;
-            const chosenCand = cands.find((c) => c.agent.agentKey === chosen) ?? cands[0];
+          items={plan.map((p) => {
+            const adoptingRepo = p.chosen === REPO_KEY;
+            const cand = p.cands.find((c) => c.agent.agentKey === p.chosen);
+            const dest = `${repoRootDisplay}/${p.name}`;
             return {
-              id: name,
-              title: name,
-              sub: (
+              id: p.name,
+              title: p.name,
+              sub: adoptingRepo ? (
+                <span className="mono">仓库内版本 · {dest}</span>
+              ) : (
                 <span className="mono">
-                  {chosenCand.agent.agentName} · {chosenCand.agent.installedDir}
-                  {chosenCand.item.symlink ? ' · 软链' : ' · 真实目录'}
+                  {cand!.agent.agentName} · {cand!.item.dir}
+                  {cand!.item.symlink ? '（软链）' : ''}
                 </span>
               ),
-              desc: cands.length > 1 ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>采纳版本：</span>
-                  <Chip
-                    options={cands.map((c) => ({ label: c.agent.agentName, value: c.agent.agentKey }))}
-                    selected={[chosen]}
-                    onChange={(arr) => { const v = arr[0]; if (v) setChoices((p) => ({ ...p, [name]: v })); }}
-                  />
+              desc: (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
+                  {p.options.length > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>采纳版本：</span>
+                      <Chip
+                        options={p.options}
+                        selected={[p.chosen]}
+                        onChange={(arr) => { const v = arr[0]; if (v) setChoices((prev) => ({ ...prev, [p.name]: v })); }}
+                      />
+                    </div>
+                  )}
+                  {!adoptingRepo && (
+                    <div className="mono" style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-2)' }}>
+                      写入：{cand!.item.dir} → {dest}
+                    </div>
+                  )}
                 </div>
-              ) : undefined,
-              status: chosenCand.item.exists ? (
-                <Badge tone="neutral" title="仓库已有同名技能，归集时将自动去重跳过">已在仓库</Badge>
-              ) : undefined,
+              ),
+              status: adoptingRepo ? (
+                <Badge tone="info" title="不写入任何文件，仓库副本保持现状">保持现状</Badge>
+              ) : p.exists ? (
+                <Badge tone="warn" title={`将覆盖仓库现有副本：${dest}`}>覆盖仓库副本</Badge>
+              ) : (
+                <Badge tone="good">新增</Badge>
+              ),
             };
           })}
         />
-        {existsCount > 0 && (
-          <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
-            其中 {existsCount} 个技能已在仓库，归集时将自动去重跳过。
-          </div>
-        )}
+        <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
+          agent 目录始终保持不动；「覆盖仓库副本」会先删除 <span className="mono">{repoRootDisplay}</span> 下的同名目录再写入所选版本。
+        </div>
         <div className="modal-actions">
           <Button variant="ghost" onClick={() => setStep('select')}>返回</Button>
           <Button variant="primary" loading={busy} onClick={run}>确认归集</Button>

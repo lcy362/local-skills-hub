@@ -176,8 +176,10 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
   r.post('/repos/:id/collect', (req, res) => {
     const repo = cfg.data.repos.find((x) => x.id === req.params.id);
     if (!repo) return res.status(404).json({ error: 'repo not found' });
-    const { agentKey, agentKeys, names, selections } = req.body ?? {};
-    // 优先 selections（按 agent 指定 skill 明细）；兼容旧 agentKeys/agentKey（收全部）
+    const { agentKey, agentKeys, names, selections, replaceNames } = req.body ?? {};
+    // 优先 selections（按 agent 指定 skill 明细）；兼容旧 agentKeys/agentKey（收全部）。
+    // replaceNames：确认页明确选择「用 agent 版本覆盖仓库副本」的名字。
+    const repl: string[] | undefined = Array.isArray(replaceNames) ? replaceNames.map(String) : undefined;
     const sel: { agentKey: string; names?: string[] }[] = Array.isArray(selections)
       ? selections.map((s: { agentKey: unknown; names?: unknown }) => ({
           agentKey: String(s.agentKey),
@@ -191,7 +193,7 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
         ).map((k) => ({ agentKey: k, names: Array.isArray(names) ? names.map(String) : undefined }));
     if (sel.length === 0) return res.status(400).json({ error: '无已安装 agent 可归集' });
     try {
-      const results = sel.map((s) => collectAgentSkill(cfg, repo, s.agentKey, s.names));
+      const results = sel.map((s) => collectAgentSkill(cfg, repo, s.agentKey, s.names, repl));
       touch();
       res.json({
         collected: results.flatMap((x) => x.collected),
