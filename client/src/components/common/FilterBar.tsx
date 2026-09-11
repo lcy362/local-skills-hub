@@ -1,67 +1,38 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import Button from '../ui/Button';
-import Chip from '../ui/Chip';
 import Segment from '../ui/Segment';
 import { VIEW_MODE_OPTIONS, type ViewMode } from '../../state/viewMode';
-
-/** 可折叠的次级筛选条件组（如标签） */
-export interface ChipGroup {
-  key: string;
-  label: string;
-  options: { label: string; value: string; count?: number }[];
-  /** 已选值；单选模式下长度不超过 1 */
-  selected: string[];
-  /** 允许多选，默认单选 */
-  multiple?: boolean;
-  onChange: (selected: string[]) => void;
-}
 
 export interface FilterBarProps {
   /** 搜索框（必填，作为主操作） */
   search: { value: string; onChange: (v: string) => void; placeholder?: string };
-  /** 与搜索同排的筛选控件（下拉 / 开关） */
+  /** 与搜索同排的筛选控件（MultiSelect / SwitchLabel 等） */
   controls?: ReactNode;
-  /** 次级条件：默认折叠，任一条件生效时自动展开 */
-  chipGroups?: ChipGroup[];
-  chipsToggleLabel?: string;
-  /** 提供了 chipGroups 但一个可选项都没有时的引导文案 */
-  chipsEmptyHint?: ReactNode;
   /** 是否存在生效中的筛选条件（决定是否出现「重置」） */
   hasFilters?: boolean;
   onReset?: () => void;
   /** 行末固定操作（刷新、统计等） */
   actions?: ReactNode;
   /**
-   * 视图切换（卡片 / 列表）。上移到本工具条右端，与筛选控件同处一行，
-   * 既填充行尾空白，也让「看什么」与「怎么看」集中在一处。
+   * 视图切换（卡片 / 列表），置于工具条右端填充行尾，
+   * 让「看什么」与「怎么看」集中在一处。
    * 传入后请同时给页面上的 EntityList 传 hideToggle，避免出现两个入口。
    */
   view?: { value: ViewMode; onChange: (v: ViewMode) => void };
 }
 
 /**
- * 统一搜索 / 筛选控制条：把一处页面的所有筛选功能收敛到同一区域内，
- * 主行只放高频操作，低频条件折叠在次级行，命中数由结果区自己展示。
+ * 统一搜索 / 筛选控制条：一行内集中搜索、各维度筛选、重置与视图切换。
+ * 筛选维度一律使用宽度恒定的控件（下拉 / 开关），选项数量增长不会撑坏排版。
  */
 export default function FilterBar({
   search,
   controls,
-  chipGroups,
-  chipsToggleLabel = '更多筛选',
-  chipsEmptyHint,
   hasFilters = false,
   onReset,
   actions,
   view,
 }: FilterBarProps) {
-  const [chipsOpen, setChipsOpen] = useState(false);
-  // 只要调用方声明了 chipGroups，入口就常驻（哪怕当前没有可选项），
-  // 避免「功能存在但用户完全看不见」。
-  const declared = (chipGroups ?? []).length > 0;
-  const groups = (chipGroups ?? []).filter((g) => g.options.length > 0);
-  const chipsActive = groups.some((g) => g.selected.length > 0);
-  const optionCount = groups.reduce((n, g) => n + g.options.length, 0);
-
   return (
     <div className="filterbar">
       <div className="filterbar__row">
@@ -96,21 +67,6 @@ export default function FilterBar({
 
         <div className="filterbar__controls">
           {controls}
-
-          {declared && !chipsActive && (
-            <button
-              type="button"
-              className="filterbar__toggle"
-              aria-expanded={chipsOpen}
-              data-empty={optionCount === 0 ? '' : undefined}
-              onClick={() => setChipsOpen((o) => !o)}
-            >
-              <ChevronIcon open={chipsOpen} />
-              {chipsToggleLabel}
-              {optionCount > 0 && <span className="mono filterbar__badge">{optionCount}</span>}
-            </button>
-          )}
-
           {hasFilters && onReset && (
             <Button variant="ghost" onClick={onReset}>
               重置
@@ -125,21 +81,6 @@ export default function FilterBar({
           </div>
         )}
       </div>
-
-      {declared && groups.length === 0 && chipsOpen && !chipsActive && (
-        <p className="filterbar__hint">{chipsEmptyHint ?? '暂无可用的筛选项。'}</p>
-      )}
-
-      {groups.length > 0 && (chipsActive || chipsOpen) && (
-        <div className="filterbar__chips">
-          {groups.map((g) => (
-            <div className="filterbar__group" key={g.key}>
-              <span className="filterbar__group-label">{g.label}</span>
-              <Chip options={g.options} selected={g.selected} multiple={g.multiple} onChange={g.onChange} />
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -157,24 +98,6 @@ function ClearIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" width="14" height="14">
       <path d="M6 6l12 12M18 6L6 18" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      width="14"
-      height="14"
-      aria-hidden="true"
-      style={{ transition: 'transform var(--dur-150) var(--ease)', transform: open ? 'rotate(90deg)' : 'none' }}
-    >
-      <path d="M9 6l6 6-6 6" />
     </svg>
   );
 }

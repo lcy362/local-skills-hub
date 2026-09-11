@@ -127,8 +127,8 @@
 
 ### F2. 近似展示复用通用组件，不内联重写
 - **含义**：凡是「一组实体的列表」——技能、预设、项目、Agent、仓库、来源、整合候选——都映射为同一份展示契约后交给同一个容器渲染，保证各页风格与交互一致。
-- **佐证**：`components/common/EntityList.tsx`（卡片优先，可切列表，偏好全局共享）、`components/common/FilterBar.tsx`（搜索 + 筛选 + 可折叠条件组）、`components/skill/SkillList.tsx`、`components/skill/AddableSkillList.tsx`。
-- **约束**：新增列表型 UI 时先扩 `EntityItem` 契约或 `FilterBar` 的插槽；不得在新视图里手写 `.entity-row` / `.entity-card` 结构。一套交互只允许一份实现（例如开关+文字标签统一用 `ui/SwitchLabel`）。
+- **佐证**：`components/common/EntityList.tsx`（卡片优先，可切列表，偏好全局共享）、`components/common/FilterBar.tsx`（搜索 + 各维度筛选 + 重置 + 视图切换）、`components/ui/MultiSelect.tsx`（多选下拉）、`components/skill/SkillList.tsx`、`components/skill/AddableSkillList.tsx`。
+- **约束**：新增列表型 UI 时先扩 `EntityItem` 契约或 `FilterBar` 的 `controls` 插槽；不得在新视图里手写 `.entity-row` / `.entity-card` 结构。一套交互只允许一份实现（例如开关+文字标签统一用 `ui/SwitchLabel`，多值筛选统一用 `ui/MultiSelect`）。
 
 ### F3. 视觉一律走 token，组件不内联色值
 - **含义**：颜色、字号、间距、圆角、动效时长与缓动、字体族全部引用 `client/src/styles/tokens.css` 的命名变量；同一条工具条内的可交互控件统一高度（`--control-h`）。

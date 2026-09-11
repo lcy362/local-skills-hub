@@ -786,9 +786,7 @@ select.field {
     transform var(--dur-150) var(--ease);
 }
 /* 焦点环用实心 accent（≥3:1），全局 --c-focus-ring 为半透明软环，仅作补充 */
-.filterbar__clear:focus-visible,
-.filterbar__toggle:focus-visible,
-.filterbar .chip:focus-visible {
+.filterbar__clear:focus-visible {
   outline: 2px solid var(--c-accent);
   outline-offset: 2px;
 }
@@ -818,15 +816,143 @@ select.field {
   /* 紧接搜索框依次排列：限宽搜索 + 右对齐会在中间留下大段空白，
      同时让右侧控件显得拥挤，故整体左对齐、间距统一 */
 }
-/* 主行内的内联胶囊组（如「来源」多选）：与同排控件等高对齐 */
-.filterbar__inline-group {
+/* ---- MultiSelect（多选下拉，选项数量不设上限） ---- */
+.multiselect {
+  position: relative;
+  flex: 0 0 auto;
+}
+.multiselect__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: auto;
+  height: var(--control-h);
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-13);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.multiselect__trigger:hover {
+  border-color: var(--c-accent);
+}
+.multiselect__trigger.is-on {
+  border-color: var(--c-accent);
+  color: var(--c-accent);
+}
+/* 摘要限宽：来源名再长也不会把工具条撑开 */
+.multiselect__summary {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.multiselect__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 210px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-3);
+}
+.multiselect__search {
+  width: 100%;
+}
+.multiselect__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 264px;
+  overflow-y: auto;
+}
+.multiselect__opt {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: var(--control-h);
-  flex-wrap: wrap;
-  min-width: 0;
+  width: 100%;
+  padding: 5px var(--sp-2);
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-ink-2);
+  font-size: var(--fs-13);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-150) var(--ease), color var(--dur-150) var(--ease);
 }
+.multiselect__opt:hover {
+  background: var(--c-surface-2);
+  color: var(--c-ink-1);
+}
+.multiselect__opt.is-on {
+  color: var(--c-accent);
+  font-weight: var(--fw-medium);
+}
+.multiselect__opt:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+.multiselect__box {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1;
+}
+.multiselect__opt.is-on .multiselect__box {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-on-accent);
+}
+.multiselect__opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.multiselect__num {
+  flex: 0 0 auto;
+  font-size: var(--fs-12);
+  color: var(--c-ink-3);
+}
+.multiselect__empty {
+  margin: 0;
+  padding: var(--sp-3);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  color: var(--c-ink-3);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.multiselect__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--c-line);
+}
+.multiselect__hint {
+  font-size: var(--fs-12);
+  color: var(--c-ink-3);
+}
+.multiselect__foot .btn {
+  height: auto;
+  padding: 4px 9px;
+}
+
 .switch-label {
   display: inline-flex;
   align-items: center;
@@ -839,88 +965,7 @@ select.field {
   white-space: nowrap;
 }
 
-/* ---- collapsible chips ---- */
-.filterbar__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-height: 38px;
-  padding: 0 var(--sp-3);
-  height: var(--control-h);
-  min-height: var(--control-h);
-  font-size: var(--fs-13);
-  font-weight: var(--fw-medium);
-  color: var(--c-ink-2);
-  background: var(--c-surface);
-  border: 1px solid var(--c-line-strong);
-  border-radius: var(--r-md);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color var(--dur-150) var(--ease), color var(--dur-150) var(--ease),
-    background var(--dur-150) var(--ease), transform var(--dur-150) var(--ease);
-}
-.filterbar__toggle:hover {
-  border-color: var(--c-accent);
-  color: var(--c-accent);
-}
-.filterbar__toggle:active {
-  transform: translateY(1px);
-}
-.filterbar__toggle[aria-expanded="true"] {
-  border-color: var(--c-accent);
-  color: var(--c-ink-1);
-}
-.filterbar__badge {
-  font-size: var(--fs-12);
-  color: var(--c-ink-3);
-  background: var(--c-surface-2);
-  border-radius: var(--r-full);
-  padding: 0 6px;
-}
-/* 尚无任何可选项：入口常驻但弱化，避免功能彻底隐身 */
-.filterbar__toggle[data-empty] {
-  border-style: dashed;
-  color: var(--c-ink-3);
-}
-.filterbar__toggle[data-empty]:hover {
-  border-color: var(--c-line-strong);
-  color: var(--c-ink-2);
-}
-.filterbar__toggle[data-empty][aria-expanded="true"] {
-  border-style: dashed;
-  color: var(--c-ink-2);
-}
-.filterbar__hint {
-  margin: 0;
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--c-line);
-  font-size: var(--fs-12);
-  color: var(--c-ink-3);
-}
-.filterbar__chips {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  padding-top: var(--sp-3);
-  border-top: 1px solid var(--c-line);
-}
-.filterbar__group {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-3);
-  min-width: 0;
-}
-.filterbar__group-label {
-  flex: 0 0 auto;
-  font-size: var(--fs-12);
-  font-weight: var(--fw-semibold);
-  color: var(--c-ink-2);
-}
-/* 折叠行是 flex-start 对齐，标签需下移一点才与首行胶囊齐平 */
-.filterbar__group .filterbar__group-label {
-  padding-top: 3px;
-}
-/* 窄屏：搜索与下拉各占整行，避免 180px 的下拉孤零零漂浮 */
+/* 窄屏：搜索与筛选控件各占整行 */
 @media (max-width: 560px) {
   .filterbar__search,
   .filterbar__controls {

@@ -12,6 +12,7 @@ import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
 import Chip from '../components/ui/Chip';
+import MultiSelect from '../components/ui/MultiSelect';
 import { FieldInput, FieldSelect } from '../components/ui/Field';
 import SwitchLabel from '../components/ui/SwitchLabel';
 import { PathField, PathListField } from '../components/ui/PathField';
@@ -115,30 +116,23 @@ export default function Library() {
           search={{ value: q, onChange: setQ, placeholder: '搜索技能名称 / 描述' }}
           controls={
             <>
-              <div className="filterbar__inline-group">
-                <span className="filterbar__group-label">来源</span>
-                <Chip
-                  options={allSources.map((s) => ({ label: s, value: s, count: sourceCounts[s] }))}
-                  selected={srcs}
-                  multiple
-                  onChange={setSrcs}
-                />
-              </div>
+              <MultiSelect
+                label="来源"
+                options={allSources.map((s) => ({ label: s, value: s, count: sourceCounts[s] }))}
+                selected={srcs}
+                onChange={setSrcs}
+                emptyHint="尚未登记任何仓库或第三方库。"
+              />
+              <MultiSelect
+                label="标签"
+                options={allTags.map((t) => ({ label: t, value: t, count: tagCounts[t] }))}
+                selected={facets}
+                onChange={setFacets}
+                emptyHint={`当前 ${data?.skills.length ?? 0} 个技能都还没有标签。打开任意技能卡片的「详情」，在标签区添加标签后即可在此按标签筛选。`}
+              />
               <SwitchLabel checked={untaggedOnly} onChange={setUntaggedOnly}>只看未打标签</SwitchLabel>
             </>
           }
-          chipGroups={[
-            {
-              key: 'tags',
-              label: '标签',
-              options: allTags.map((t) => ({ label: t, value: t, count: tagCounts[t] })),
-              selected: facets,
-              multiple: true,
-              onChange: setFacets,
-            },
-          ]}
-          chipsToggleLabel="按标签筛选"
-          chipsEmptyHint={`当前 ${data?.skills.length ?? 0} 个技能都还没有标签。打开任意技能卡片的「详情」，在标签区添加标签后即可在此按标签筛选。`}
           hasFilters={hasFilter}
           onReset={clearFilters}
           view={{ value: viewMode, onChange: setViewMode }}
@@ -434,7 +428,6 @@ function SkillDetailModal({
     [id]
   );
 
-  const toggle = (t: string) => setTags((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
   const addNew = () => {
     const t = newTag.trim();
     if (t && !tags.includes(t)) setTags((p) => [...p, t]);
@@ -476,13 +469,14 @@ function SkillDetailModal({
               </div>
               <Button onClick={addNew}>添加</Button>
             </div>
-            <div className="filter-row" style={{ marginTop: 'var(--sp-2)' }}>
-              {allTags.map((t) => (
-                <button key={t} type="button" className={`chip ${tags.includes(t) ? 'is-on' : ''}`} onClick={() => toggle(t)}>{t}</button>
-              ))}
-              {tags.filter((t) => !allTags.includes(t)).map((t) => (
-                <button key={t} type="button" className="chip is-on" onClick={() => toggle(t)}>{t}</button>
-              ))}
+            <div style={{ marginTop: 'var(--sp-2)' }}>
+              {/* 库内已有标签 + 本次新增的标签，一并作为可多选的候选项 */}
+              <Chip
+                options={[...allTags, ...tags.filter((t) => !allTags.includes(t))].map((t) => ({ label: t, value: t }))}
+                selected={tags}
+                multiple
+                onChange={setTags}
+              />
             </div>
           </div>
 
