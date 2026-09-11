@@ -154,12 +154,12 @@ export function useQueryValue(key: string): [string | undefined, (v: string | un
   return [v || undefined, setV];
 }
 
-/** query 中的多值条件：以逗号分隔存于同一参数，空列表即移除该参数 */
-export function useQueryList(key: string): [string[], (v: string[]) => void] {
+/** query 中的多值条件：以逗号分隔存于同一参数，空列表即移除该参数；URL 无该参数时回落 defaultValue */
+export function useQueryList(key: string, defaultValue: string[] = []): [string[], (v: string[]) => void] {
   const [raw, setRaw] = useQueryParam(key);
   const list = useMemo(
-    () => (raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : []),
-    [raw]
+    () => (raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : defaultValue),
+    [raw, defaultValue]
   );
   const setList = useCallback((v: string[]) => setRaw(v.length ? v.join(',') : ''), [setRaw]);
   return [list, setList];

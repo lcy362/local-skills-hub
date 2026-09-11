@@ -35,7 +35,9 @@ export default function Library() {
   const closeDetail = () => navigate({ ...route, sub: null });
   const [facets, setFacets] = useQueryList('tag');
   const [q, setQ] = useQueryParam('q');
-  const [srcs, setSrcs] = useQueryList('src');
+  /** 来源筛选默认只选中自有仓库；URL 显式带 src 时以 URL 为准 */
+  const defaultSrcs = useMemo(() => (data?.repos ?? []).map((r) => r.id), [data]);
+  const [srcs, setSrcs] = useQueryList('src', defaultSrcs);
   const [untaggedOnly, setUntaggedOnly] = useQueryFlag('untagged');
   const [viewMode, setViewMode] = useViewMode();
 
@@ -80,7 +82,9 @@ export default function Library() {
     });
   }, [cards, facets, q, srcs, untaggedOnly]);
 
-  const hasFilter = !!(facets.length > 0 || srcs.length > 0 || untaggedOnly || q.trim());
+  // 来源默认值（自有仓库）不算筛选；仅当用户在地址栏显式筛过来源时，重置才出现
+  const srcInUrl = route.query.get('src');
+  const hasFilter = !!(facets.length > 0 || untaggedOnly || q.trim() || (!!srcInUrl && srcs.length > 0));
   const clearFilters = () => {
     setQ(''); setSrcs([]); setFacets([]); setUntaggedOnly(false);
   };

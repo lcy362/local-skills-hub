@@ -65,6 +65,7 @@ export default function Presets() {
           preset={selected}
           skills={data?.skills ?? []}
           allTags={allTags}
+          ownSources={(data?.repos ?? []).map((r) => r.id)}
           onBack={back}
           onChanged={reload}
         />
@@ -173,19 +174,23 @@ function PresetDetail({
   preset,
   skills,
   allTags,
+  ownSources,
   onBack,
   onChanged,
 }: {
   preset: PresetView;
   skills: SkillView[];
   allTags: string[];
+  /** 自有仓库 id 列表；来源筛选默认只选中这些 */
+  ownSources: string[];
   onBack: () => void;
   onChanged: () => void;
 }) {
   const toast = useToast();
   const [newTag, setNewTag] = useState('');
   const [q, setQ] = useState('');
-  const [srcs, setSrcs] = useState<string[]>([]);
+  /** 来源筛选默认只选中自有仓库 */
+  const [srcs, setSrcs] = useState<string[]>(ownSources);
   const [facets, setFacets] = useState<string[]>([]);
   const [viewMode, setViewMode] = useViewMode();
   /** 技能名单的本地草稿：连点多个开关时不丢操作；保存失败或切换预设后回退到服务端数据 */
