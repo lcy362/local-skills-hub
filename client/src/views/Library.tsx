@@ -281,23 +281,36 @@ function AddSkillsModal({ repo, onClose, onDone }: { repo: RepoView | null; onCl
 
 /**
  * 从 Agent 归集（IM-01）：两步流程（面板，由 AddSkillsModal 承载）。
- * 第一步按 Agent 分组展示其 skill 清单（标注真实目录 / 软链及指向），逐个勾选；
- * 第二步汇总确认后写入仓库。已在仓库、或软链指向仓库本体的项不可选（执行时也会被去重跳过）。
+ * 第一步按 Agent 分组（默认折叠）展示 skill 清单，标注存储形态与 Agent 接管状态；
+ * 已接管但外链指向非仓库位置的 skill 可一键「调整」改指仓库本体；
+ * 第二步汇总确认后写入仓库。所有技能（软链 / 真实目录、含已在仓库的同名项）均可勾选，
+ * 已在仓库的项执行时自动去重跳过（不覆盖、不产生重复本体）。
  */
 function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const [adjusting, setAdjusting] = useState<string | null>(null);
   const [step, setStep] = useState<'select' | 'confirm'>('select');
   /** agentKey → 已勾选的 skill 名 */
   const [picked, setPicked] = useState<Record<string, string[]>>({});
-  const { data, loading } = useAsync<AgentCollectPreview[]>(
+  /** 确认页：每个技能名采纳哪个 agent 的版本 */
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const { data, loading, reload } = useAsync<AgentCollectPreview[]>(
     () => api(`/repos/${encodeURIComponent(repo.id)}/collect/preview`),
     [repo.id]
   );
 
   const agents = data ?? [];
-  /** 不可选：已在仓库，或软链指向仓库本体（归集等于复制自己） */
-  const unselectable = (it: AgentCollectItem) => it.exists || (it.symlink && it.inRepo);
+  /** 可直接调整：已是软链但指向仓库之外，且仓库内已有同名副本 */
+  const adjustable = (it: AgentCollectItem) => it.symlink && !it.inRepo && it.exists;
+
+  /** Agent 接管状态：所有 skill 均为指向仓库的软链 = 已接管 */
+  const takeoverStatus = (a: AgentCollectPreview): { tone: 'good' | 'accent' | 'neutral'; label: string } => {
+    const linked = a.items.filter((it) => it.symlink && it.inRepo).length;
+    if (a.items.length > 0 && linked === a.items.length) return { tone: 'good', label: '已接管' };
+    if (linked > 0) return { tone: 'accent', label: '部分接管' };
+    return { tone: 'neutral', label: '未接管' };
+  };
 
   const toggleSkill = (agentKey: string, name: string) =>
     setPicked((p) => {
@@ -306,7 +319,7 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
     });
 
   const toggleAgent = (a: AgentCollectPreview) => {
-    const names = a.items.filter((it) => !unselectable(it)).map((it) => it.name);
+    const names = a.items.map((it) => it.name);
     setPicked((p) => {
       const cur = p[a.agentKey] ?? [];
       const all = names.length > 0 && names.every((n) => cur.includes(n));
@@ -314,18 +327,54 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
     });
   };
 
+  /** 把指向外部的软链改指仓库本体（takeover：软链源直接替换，原位置不受影响） */
+  const adjust = async (agentKey: string, name: string) => {
+    setAdjusting(`${agentKey}:${name}`);
+    try {
+      const res = await api<{ linked: boolean; reason?: string }>(
+        `/repos/${encodeURIComponent(repo.id)}/takeover`,
+        { method: 'POST', body: JSON.stringify({ agentKey, name, confirm: true }) }
+      );
+      if (res.linked) toast.push(`${name} 已改指仓库本体`, 'good');
+      else toast.push(res.reason ?? '调整失败', 'bad');
+      reload();
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : String(e), 'bad');
+    } finally { setAdjusting(null); }
+  };
+
   const selections = agents
     .map((a) => ({ agent: a, names: picked[a.agentKey] ?? [] }))
     .filter((s) => s.names.length > 0);
   const totalPicked = selections.reduce((n, s) => n + s.names.length, 0);
-  const existsCount = agents.reduce((n, a) => n + a.items.filter((it) => it.exists).length, 0);
 
+  /** 确认页按名字分组：同名技能可能勾选自多个 agent，需用户选择采纳哪个版本 */
+  const selectedGroups = useMemo(() => {
+    const m = new Map<string, { agent: AgentCollectPreview; item: AgentCollectItem }[]>();
+    for (const s of selections) {
+      for (const name of s.names) {
+        const item = s.agent.items.find((it) => it.name === name);
+        if (item) (m.get(name) ?? m.set(name, []).get(name)!).push({ agent: s.agent, item });
+      }
+    }
+    return [...m.entries()];
+  }, [data, picked]);
+  /** 统计口径 = 确认页所选的名字中，仓库已有同名者 */
+  const existsCount = selectedGroups.filter(([, cands]) => cands[0].item.exists).length;
+  const multiSourceCount = selectedGroups.filter(([, cands]) => cands.length > 1).length;
+
+  /** 每个名字只采纳一个 agent 的版本（默认第一个候选，确认页可改选） */
   const run = async () => {
     setBusy(true);
     try {
+      const byAgent: Record<string, string[]> = {};
+      for (const [name, cands] of selectedGroups) {
+        const agentKey = choices[name] ?? cands[0].agent.agentKey;
+        (byAgent[agentKey] ??= []).push(name);
+      }
       const res = await api<{ collected: string[]; skipped: string[] }>(
         `/repos/${encodeURIComponent(repo.id)}/collect`,
-        { method: 'POST', body: JSON.stringify({ selections: selections.map((s) => ({ agentKey: s.agent.agentKey, names: s.names })) }) }
+        { method: 'POST', body: JSON.stringify({ selections: Object.entries(byAgent).map(([agentKey, names]) => ({ agentKey, names })) }) }
       );
       toast.push(`已归集 ${res.collected.length} 个技能${res.skipped.length ? `，跳过 ${res.skipped.length}` : ''}`, 'good');
       onDone();
@@ -338,25 +387,51 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
     return (
       <>
         <div style={{ fontSize: 'var(--fs-13)', color: 'var(--c-ink-2)' }}>
-          将把 <strong>{totalPicked}</strong> 个技能复制进 <span className="mono">{repo.name || repo.id}</span>，agent 目录保持不动：
+          将把 <strong>{selectedGroups.length}</strong> 个技能复制进 <span className="mono">{repo.name || repo.id}</span>，agent 目录保持不动
+          {totalPicked !== selectedGroups.length && <>（已勾选 {totalPicked} 项，同名合并）</>}：
         </div>
+        {multiSourceCount > 0 && (
+          <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
+            {multiSourceCount} 个技能名来自多个 Agent，请为每个名字选择采纳的版本：
+          </div>
+        )}
         <EntityList
           mode="list"
           toggle={false}
-          items={selections.flatMap((s) =>
-            s.names.map((name) => ({
-              id: `${s.agent.agentKey}:${name}`,
+          items={selectedGroups.map(([name, cands]) => {
+            const chosen = choices[name] ?? cands[0].agent.agentKey;
+            const chosenCand = cands.find((c) => c.agent.agentKey === chosen) ?? cands[0];
+            return {
+              id: name,
               title: name,
-              sub: <span className="mono">{s.agent.agentName} · {s.agent.installedDir}</span>,
-            }))
-          )}
+              sub: (
+                <span className="mono">
+                  {chosenCand.agent.agentName} · {chosenCand.agent.installedDir}
+                  {chosenCand.item.symlink ? ' · 软链' : ' · 真实目录'}
+                </span>
+              ),
+              desc: cands.length > 1 ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>采纳版本：</span>
+                  <Chip
+                    options={cands.map((c) => ({ label: c.agent.agentName, value: c.agent.agentKey }))}
+                    selected={[chosen]}
+                    onChange={(arr) => { const v = arr[0]; if (v) setChoices((p) => ({ ...p, [name]: v })); }}
+                  />
+                </div>
+              ) : undefined,
+              status: chosenCand.item.exists ? (
+                <Badge tone="neutral" title="仓库已有同名技能，归集时将自动去重跳过">已在仓库</Badge>
+              ) : undefined,
+            };
+          })}
         />
         {existsCount > 0 && (
           <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
-            另有 {existsCount} 个同名技能已在仓库，将自动去重跳过。
+            其中 {existsCount} 个技能已在仓库，归集时将自动去重跳过。
           </div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)', paddingTop: 'var(--sp-2)' }}>
+        <div className="modal-actions">
           <Button variant="ghost" onClick={() => setStep('select')}>返回</Button>
           <Button variant="primary" loading={busy} onClick={run}>确认归集</Button>
         </div>
@@ -369,29 +444,39 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
       {loading && <span style={{ color: 'var(--c-ink-3)' }}>扫描中…</span>}
       {!loading && agents.length === 0 && <EmptyState title="没有已安装的 Agent 可归集" />}
       {agents.map((a) => {
-        const selectable = a.items.filter((it) => !unselectable(it)).map((it) => it.name);
+        const st = takeoverStatus(a);
         const cur = picked[a.agentKey] ?? [];
-        const selectedCount = selectable.filter((n) => cur.includes(n)).length;
-        const allSelected = selectable.length > 0 && selectedCount === selectable.length;
+        const selectedCount = a.items.filter((it) => cur.includes(it.name)).length;
+        const allSelected = a.items.length > 0 && selectedCount === a.items.length;
         return (
           <EntityList
             key={a.agentKey}
             mode="list"
             toggle={false}
+            collapsible
+            defaultCollapsed
             title={
-              <span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
                 {a.agentName}
-                <span className="mono" style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', marginLeft: 'var(--sp-2)' }}>
+                <Badge tone={st.tone} title={st.label === '未接管' ? 'skill 本体仍在 agent 目录，未替换为指向仓库的软链' : st.label === '部分接管' ? '部分 skill 已指向仓库本体' : '所有 skill 均已指向仓库本体'}>{st.label}</Badge>
+                <span className="mono" style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
                   {a.agentKey} · {a.items.length} 项
                 </span>
               </span>
             }
             toolbar={
-              selectable.length > 0 ? (
-                <SwitchLabel checked={allSelected} onChange={() => toggleAgent(a)}>
-                  全选（{selectedCount}/{selectable.length}）
-                </SwitchLabel>
-              ) : undefined
+              <>
+                {st.label === '未接管' && (
+                  <span style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
+                    未接管：归集入库后可执行「接管」，把本目录替换为指向仓库的软链
+                  </span>
+                )}
+                {a.items.length > 0 && (
+                  <SwitchLabel checked={allSelected} onChange={() => toggleAgent(a)}>
+                    全选（{selectedCount}/{a.items.length}）
+                  </SwitchLabel>
+                )}
+              </>
             }
             items={a.items.map((it) => ({
               id: it.name,
@@ -399,25 +484,34 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
               sub: <span className="mono">{it.symlink ? `软链 → ${it.linkTarget ?? '(悬空)'}` : '真实目录'}</span>,
               desc: it.description,
               status: it.exists ? (
-                <Badge tone="neutral">已在仓库</Badge>
+                <Badge tone="neutral" title="仓库已有同名技能，归集时将自动去重跳过">已在仓库</Badge>
               ) : it.symlink && it.inRepo ? (
                 <Badge tone="info" title={`软链指向仓库本体：${it.linkTarget}`}>仓库本体</Badge>
               ) : it.symlink ? (
                 <Badge tone="accent">软链</Badge>
               ) : undefined,
-              muted: unselectable(it),
-              toggle: unselectable(it) ? undefined : (
+              toggle: (
                 <Switch
                   aria-label={`归集 ${it.name}`}
                   checked={cur.includes(it.name)}
                   onChange={() => toggleSkill(a.agentKey, it.name)}
                 />
               ),
+              actions: adjustable(it) ? (
+                <Button
+                  size="sm"
+                  loading={adjusting === `${a.agentKey}:${it.name}`}
+                  onClick={() => adjust(a.agentKey, it.name)}
+                  title="此软链当前指向外部位置；仓库内已有同名副本，点击后改为指向仓库本体（原外部链接将被替换）"
+                >
+                  改指仓库
+                </Button>
+              ) : undefined,
             }))}
           />
         );
       })}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)', paddingTop: 'var(--sp-2)' }}>
+      <div className="modal-actions">
         <Button variant="ghost" onClick={onClose}>关闭</Button>
         <Button variant="primary" disabled={totalPicked === 0} onClick={() => setStep('confirm')}>下一步：确认</Button>
       </div>
@@ -776,7 +870,7 @@ function ImportPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =>
       {preview && (
         <EntityList items={items} title={`识别结果（${items.length}）`} toggle={false} />
       )}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)' }}>
+      <div className="modal-actions">
         <Button variant="ghost" onClick={onClose}>关闭</Button>
         <Button size="sm" onClick={runPreview} loading={busy} disabled={dirs.length === 0}>识别</Button>
         <Button variant="primary" loading={busy} disabled={!preview} onClick={runImport}>开始导入</Button>

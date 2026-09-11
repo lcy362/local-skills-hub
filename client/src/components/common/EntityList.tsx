@@ -140,6 +140,8 @@ export interface EntityListProps {
   collapsible?: boolean;
   /** 折叠状态持久化 key（localStorage），缺省仅内存态 */
   storageKey?: string;
+  /** 初始是否折叠（无 storageKey 时即每次打开的默认态） */
+  defaultCollapsed?: boolean;
 }
 
 /**
@@ -157,12 +159,13 @@ export default function EntityList({
   hideToggle = false,
   collapsible = false,
   storageKey,
+  defaultCollapsed = false,
 }: EntityListProps) {
   const [globalMode, setGlobalMode] = useViewMode();
   const current = mode ?? globalMode;
   const showToggle = toggle && !hideToggle;
   const canCollapse = collapsible && !!title;
-  const [collapsed, toggleCollapsed] = useCollapsed(storageKey);
+  const [collapsed, toggleCollapsed] = useCollapsed(storageKey, defaultCollapsed);
 
   const collapseCtrl = canCollapse ? (
     <button
