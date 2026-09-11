@@ -55,7 +55,8 @@ export interface SkillCardView {
   tags: string[];
   reason: SkillReason;
   store: SkillStore;
-  state: 'on' | 'off' | 'own-in-use';
+  /** 缺省表示该上下文没有启用/停用语义（如技能库资产池），此时不展示状态徽标 */
+  state?: 'on' | 'off' | 'own-in-use';
   offOverride?: boolean;
   linkTarget?: string;
   preset?: string;

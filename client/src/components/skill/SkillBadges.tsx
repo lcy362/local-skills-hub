@@ -41,6 +41,7 @@ export function storeBadge(item: SkillCardView) {
   return <Badge tone="info" title={STORE_TITLE[item.store]}>{label}</Badge>;
 }
 
+/** 状态徽标；state 缺省时返回 null（该上下文无启用/停用语义） */
 export function stateBadge(item: SkillCardView) {
   switch (item.state) {
     case 'on':
@@ -56,12 +57,13 @@ export function stateBadge(item: SkillCardView) {
         </Badge>
       );
     case 'off':
-    default:
       return (
         <Badge tone="neutral" dot="neutral" title="此技能当前未启用">
           未启用
         </Badge>
       );
+    default:
+      return null;
   }
 }
 

@@ -22,7 +22,7 @@ export function skillViewToCard(
     tags: s.tags ?? [],
     reason: 'manual',
     store: 'own',
-    state: 'on',
+    // 技能库是资产池，不存在启用/停用，故不设置 state（不展示状态徽标）
     actions,
   };
 }

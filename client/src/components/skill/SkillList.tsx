@@ -48,7 +48,8 @@ export function skillToEntity(
     ) : undefined,
     actions: <SkillActions item={item} onAction={onAction} />,
     onClick: onOpen ? () => onOpen(item) : undefined,
-    muted: !on,
+    // 仅「未启用」置灰；无 state（技能库）保持正常态
+    muted: item.state === 'off',
   };
 }
 
