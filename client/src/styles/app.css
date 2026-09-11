@@ -729,10 +729,6 @@ select.field {
   padding-top: 0;
   padding-bottom: 0;
 }
-/* label 默认 display:inline，会为 select 撑出行框降部空隙，使下拉视觉上浮 */
-.filterbar__field > label {
-  display: block;
-}
 .filterbar__row .btn {
   height: var(--control-h);
   padding-left: var(--sp-4);
@@ -745,8 +741,9 @@ select.field {
   display: flex;
   align-items: center;
   /* 工具栏搜索：上限约束最大宽度（避免撑满整行），下限窄屏仍可用，
-     中间由 flex 自适应吸收余量 */
-  flex: 1 1 240px;
+     中间由 flex 自适应吸收余量。basis 取较小值，使右侧筛选控件变多时
+     搜索先让位，而不是整行折行 */
+  flex: 1 1 200px;
   max-width: 400px;
   min-width: 180px;
 }
@@ -821,8 +818,13 @@ select.field {
   /* 紧接搜索框依次排列：限宽搜索 + 右对齐会在中间留下大段空白，
      同时让右侧控件显得拥挤，故整体左对齐、间距统一 */
 }
-.filterbar__field {
-  flex: 0 0 180px;
+/* 主行内的内联胶囊组（如「来源」多选）：与同排控件等高对齐 */
+.filterbar__inline-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control-h);
+  flex-wrap: wrap;
   min-width: 0;
 }
 .switch-label {
@@ -910,16 +912,18 @@ select.field {
 }
 .filterbar__group-label {
   flex: 0 0 auto;
-  padding-top: 3px;
   font-size: var(--fs-12);
   font-weight: var(--fw-semibold);
   color: var(--c-ink-2);
 }
+/* 折叠行是 flex-start 对齐，标签需下移一点才与首行胶囊齐平 */
+.filterbar__group .filterbar__group-label {
+  padding-top: 3px;
+}
 /* 窄屏：搜索与下拉各占整行，避免 180px 的下拉孤零零漂浮 */
 @media (max-width: 560px) {
   .filterbar__search,
-  .filterbar__controls,
-  .filterbar__field {
+  .filterbar__controls {
     flex: 1 1 100%;
     max-width: none;
   }

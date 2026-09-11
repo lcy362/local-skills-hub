@@ -9,8 +9,11 @@ export interface ChipGroup {
   key: string;
   label: string;
   options: { label: string; value: string; count?: number }[];
-  value?: string;
-  onChange: (v: string | undefined) => void;
+  /** 已选值；单选模式下长度不超过 1 */
+  selected: string[];
+  /** 允许多选，默认单选 */
+  multiple?: boolean;
+  onChange: (selected: string[]) => void;
 }
 
 export interface FilterBarProps {
@@ -56,7 +59,7 @@ export default function FilterBar({
   // 避免「功能存在但用户完全看不见」。
   const declared = (chipGroups ?? []).length > 0;
   const groups = (chipGroups ?? []).filter((g) => g.options.length > 0);
-  const chipsActive = groups.some((g) => !!g.value);
+  const chipsActive = groups.some((g) => g.selected.length > 0);
   const optionCount = groups.reduce((n, g) => n + g.options.length, 0);
 
   return (
@@ -132,7 +135,7 @@ export default function FilterBar({
           {groups.map((g) => (
             <div className="filterbar__group" key={g.key}>
               <span className="filterbar__group-label">{g.label}</span>
-              <Chip options={g.options} value={g.value} onChange={g.onChange} allowDeselect />
+              <Chip options={g.options} selected={g.selected} multiple={g.multiple} onChange={g.onChange} />
             </div>
           ))}
         </div>

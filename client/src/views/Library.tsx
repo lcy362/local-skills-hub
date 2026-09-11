@@ -11,13 +11,14 @@ import Modal from '../components/ui/Modal';
 import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
+import Chip from '../components/ui/Chip';
 import { FieldInput, FieldSelect } from '../components/ui/Field';
 import SwitchLabel from '../components/ui/SwitchLabel';
 import { PathField, PathListField } from '../components/ui/PathField';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
 import { useViewMode } from '../state/viewMode';
-import { navigate, useQueryFlag, useQueryParam, useQueryValue, useRoute } from '../state/router';
+import { navigate, useQueryFlag, useQueryList, useQueryParam, useRoute } from '../state/router';
 
 const DETAIL_ACTION: SkillAction[] = [{ kind: 'detail', label: '详情' }];
 
@@ -33,9 +34,9 @@ export default function Library() {
   const detailId = route.sub;
   const openDetail = (id: string) => navigate({ ...route, sub: id });
   const closeDetail = () => navigate({ ...route, sub: null });
-  const [facet, setFacet] = useQueryValue('tag');
+  const [facets, setFacets] = useQueryList('tag');
   const [q, setQ] = useQueryParam('q');
-  const [src, setSrc] = useQueryValue('src');
+  const [srcs, setSrcs] = useQueryList('src');
   const [untaggedOnly, setUntaggedOnly] = useQueryFlag('untagged');
   const [viewMode, setViewMode] = useViewMode();
 
@@ -51,10 +52,16 @@ export default function Library() {
     return [...set].sort();
   }, [data]);
 
-  /** 每个标签下的技能数，供筛选器展示 */
+  /** 每个标签 / 来源下的技能数，供筛选器展示 */
   const tagCounts = useMemo(() => {
     const m: Record<string, number> = {};
     data?.skills.forEach((s) => s.tags?.forEach((t) => { m[t] = (m[t] ?? 0) + 1; }));
+    return m;
+  }, [data]);
+
+  const sourceCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    data?.skills.forEach((s) => { m[s.source] = (m[s.source] ?? 0) + 1; });
     return m;
   }, [data]);
 
@@ -62,8 +69,9 @@ export default function Library() {
   const shown = useMemo(() => {
     const kw = q.trim().toLowerCase();
     return cards.filter((c) => {
-      if (facet && !c.tags.includes(facet)) return false;
-      if (src && c.source !== src) return false;
+      // 多选条件之间为「或」：命中任一选中项即保留，与来源筛选保持一致
+      if (facets.length > 0 && !facets.some((t) => c.tags.includes(t))) return false;
+      if (srcs.length > 0 && !srcs.includes(c.source)) return false;
       if (untaggedOnly && c.tags.length > 0) return false;
       if (kw) {
         const hay = `${c.name} ${c.title ?? ''} ${c.description ?? ''}`.toLowerCase();
@@ -71,11 +79,11 @@ export default function Library() {
       }
       return true;
     });
-  }, [cards, facet, q, src, untaggedOnly]);
+  }, [cards, facets, q, srcs, untaggedOnly]);
 
-  const hasFilter = !!(facet || src || untaggedOnly || q.trim());
+  const hasFilter = !!(facets.length > 0 || srcs.length > 0 || untaggedOnly || q.trim());
   const clearFilters = () => {
-    setQ(''); setSrc(undefined); setFacet(undefined); setUntaggedOnly(false);
+    setQ(''); setSrcs([]); setFacets([]); setUntaggedOnly(false);
   };
 
   const detailTarget = detailId ? data?.skills.find((s) => s.id === detailId) : undefined;
@@ -107,15 +115,14 @@ export default function Library() {
           search={{ value: q, onChange: setQ, placeholder: '搜索技能名称 / 描述' }}
           controls={
             <>
-              <div className="filterbar__field">
-                <FieldSelect
-                  aria-label="来源"
-                  value={src ?? ''}
-                  onChange={(e) => setSrc(e.target.value || undefined)}
-                >
-                  <option value="">全部来源</option>
-                  {allSources.map((s) => <option key={s} value={s}>{s}</option>)}
-                </FieldSelect>
+              <div className="filterbar__inline-group">
+                <span className="filterbar__group-label">来源</span>
+                <Chip
+                  options={allSources.map((s) => ({ label: s, value: s, count: sourceCounts[s] }))}
+                  selected={srcs}
+                  multiple
+                  onChange={setSrcs}
+                />
               </div>
               <SwitchLabel checked={untaggedOnly} onChange={setUntaggedOnly}>只看未打标签</SwitchLabel>
             </>
@@ -125,8 +132,9 @@ export default function Library() {
               key: 'tags',
               label: '标签',
               options: allTags.map((t) => ({ label: t, value: t, count: tagCounts[t] })),
-              value: facet,
-              onChange: setFacet,
+              selected: facets,
+              multiple: true,
+              onChange: setFacets,
             },
           ]}
           chipsToggleLabel="按标签筛选"
