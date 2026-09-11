@@ -92,6 +92,11 @@ export function collectAgentSkill(cfg: ConfigStore, repo: Repo, agentKey: string
     const dest = path.join(skillsRoot, s.name);
     if (fs.existsSync(dest)) {
       if (replaceNames?.includes(s.name)) {
+        // 防自毁：源本体与仓库副本是同一文件（如 agent 内软链指向仓库）时禁止覆盖，
+        // 否则 rm 掉的正是软链指向的内容，agent 与仓库一起损坏
+        let same = false;
+        try { same = fs.realpathSync(s.dir) === fs.realpathSync(dest); } catch { /* ignore */ }
+        if (same) { res.skipped.push(`${s.name}(源与仓库副本为同一本体，跳过覆盖)`); continue; }
         try { fs.rmSync(dest, { recursive: true, force: true }); }
         catch (e) { res.skipped.push(`${s.name}(覆盖失败: ${(e as Error).message})`); continue; }
       } else { res.skipped.push(`${s.name}(已存在，去重跳过)`); continue; }

@@ -366,14 +366,21 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
   /** 每个名字的候选与采纳结果：仓库版本默认选中（保持现状），选 agent 版本则覆盖仓库副本 */
   const repoRootDisplay = repo.root ?? `${repo.path}/skills`;
   const plan = selectedGroups.map(([name, cands]) => {
+    // agent 内是「软链指向仓库本体」的项：内容即仓库副本本身，不存在独立版本，不作为候选
+    const agentCands = cands.filter((c) => !(c.item.symlink && c.item.inRepo));
     const exists = cands[0].item.exists;
-    const options = [
-      ...(exists ? [{ label: '仓库内版本（保持现状）', value: REPO_KEY }] : []),
-      ...cands.map((c) => ({ label: c.agent.agentName, value: c.agent.agentKey })),
-    ];
+    const noop = agentCands.length === 0;
+    const options = noop
+      ? []
+      : [
+          ...(exists ? [{ label: '仓库内版本（保持现状）', value: REPO_KEY }] : []),
+          ...agentCands.map((c) => ({ label: c.agent.agentName, value: c.agent.agentKey })),
+        ];
     let chosen = choices[name];
-    if (!chosen || !options.some((o) => o.value === chosen)) chosen = exists ? REPO_KEY : cands[0].agent.agentKey;
-    return { name, cands, exists, options, chosen };
+    if (noop || !chosen || !options.some((o) => o.value === chosen)) {
+      chosen = !noop && agentCands.length > 0 ? (exists ? REPO_KEY : agentCands[0].agent.agentKey) : REPO_KEY;
+    }
+    return { name, cands: agentCands, allCands: cands, exists, options, chosen, noop };
   });
   const writePlans = plan.filter((p) => p.chosen !== REPO_KEY);
   const keepCount = plan.length - writePlans.length;
@@ -421,6 +428,19 @@ function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () =
             const adoptingRepo = p.chosen === REPO_KEY;
             const cand = p.cands.find((c) => c.agent.agentKey === p.chosen);
             const dest = `${repoRootDisplay}/${p.name}`;
+            if (p.noop) {
+              const src = p.allCands[0];
+              return {
+                id: p.name,
+                title: p.name,
+                sub: (
+                  <span className="mono">
+                    {src.agent.agentName} · 软链 → {src.item.linkTarget ?? '(悬空)'}（即仓库本体）
+                  </span>
+                ),
+                status: <Badge tone="info" title="agent 内是指向仓库本体的软链，没有独立版本，无需归集">仓库本体 · 无需归集</Badge>,
+              };
+            }
             return {
               id: p.name,
               title: p.name,
