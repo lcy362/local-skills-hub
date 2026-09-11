@@ -18,6 +18,10 @@ interface SkillListProps {
   empty?: EntityListProps['empty'];
   /** 视图切换器已上移到筛选条 */
   hideToggle?: boolean;
+  /** 是否提供整体折叠控制 */
+  collapsible?: boolean;
+  /** 折叠状态持久化 key（localStorage） */
+  storageKey?: string;
 }
 
 /** SkillCardView → 通用 EntityItem，保证与其他实体列表风格一致 */
@@ -67,9 +71,20 @@ export default function SkillList({
   mode,
   empty,
   hideToggle,
+  collapsible,
+  storageKey,
 }: SkillListProps) {
   const entities = items.map((item) => skillToEntity(item, { onToggle, onAction, onTag, onOpen }));
   return (
-    <EntityList items={entities} title={title} toolbar={toolbar} mode={mode} empty={empty} hideToggle={hideToggle} />
+    <EntityList
+      items={entities}
+      title={title}
+      toolbar={toolbar}
+      mode={mode}
+      empty={empty}
+      hideToggle={hideToggle}
+      collapsible={collapsible}
+      storageKey={storageKey}
+    />
   );
 }

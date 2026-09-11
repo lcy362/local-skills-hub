@@ -3,6 +3,7 @@ import Segment from '../ui/Segment';
 import Tag from '../ui/Tag';
 import EmptyState from '../ui/EmptyState';
 import { useViewMode, VIEW_MODE_OPTIONS, type ViewMode } from '../../state/viewMode';
+import { useCollapsed } from '../../state/collapse';
 
 /**
  * 通用实体展示契约。
@@ -135,22 +136,54 @@ export interface EntityListProps {
   mode?: ViewMode;
   /** 视图切换器已上移到筛选条时置 true，避免同一页出现两个切换入口 */
   hideToggle?: boolean;
+  /** 是否提供整体折叠控制（标题行左侧出现折叠按钮），需配合 title */
+  collapsible?: boolean;
+  /** 折叠状态持久化 key（localStorage），缺省仅内存态 */
+  storageKey?: string;
 }
 
 /**
  * 通用实体列表容器：默认卡片视图，可切换为列表；
  * 视图偏好全局共享（localStorage），一处切换全站生效。
+ * 可选整体折叠：折叠后仅保留标题行（标题 / 计数 / 工具栏仍在）。
  */
-export default function EntityList({ items, title, toolbar, toggle = true, empty, mode, hideToggle = false }: EntityListProps) {
+export default function EntityList({
+  items,
+  title,
+  toolbar,
+  toggle = true,
+  empty,
+  mode,
+  hideToggle = false,
+  collapsible = false,
+  storageKey,
+}: EntityListProps) {
   const [globalMode, setGlobalMode] = useViewMode();
   const current = mode ?? globalMode;
   const showToggle = toggle && !hideToggle;
+  const canCollapse = collapsible && !!title;
+  const [collapsed, toggleCollapsed] = useCollapsed(storageKey);
+
+  const collapseCtrl = canCollapse ? (
+    <button
+      type="button"
+      className="entity-toolbar__collapse"
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? '展开列表' : '折叠列表'}
+      title={collapsed ? '展开' : '折叠'}
+      onClick={toggleCollapsed}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  ) : undefined;
 
   if (items.length === 0) {
     return (
       <>
-        {title && <EntityToolbar title={title} toolbar={toolbar} />}
-        {empty ?? <EmptyState title="暂无数据" />}
+        {title && <EntityToolbar title={title} toolbar={toolbar} collapse={collapseCtrl} />}
+        {!collapsed && (empty ?? <EmptyState title="暂无数据" />)}
       </>
     );
   }
@@ -161,24 +194,27 @@ export default function EntityList({ items, title, toolbar, toggle = true, empty
         <EntityToolbar
           title={title}
           toolbar={toolbar}
+          collapse={collapseCtrl}
           toggle={showToggle ? <Segment<ViewMode> value={current} onChange={setGlobalMode} options={VIEW_MODE_OPTIONS} /> : undefined}
         />
       )}
-      <div style={{ marginTop: title || toolbar || showToggle ? 'var(--sp-4)' : 0 }}>
-        {current === 'card' ? (
-          <div className="entity-grid">
-            {items.map((item) => (
-              <EntityCard key={item.id} item={item} />
-            ))}
-          </div>
-        ) : (
-          <div className="entity-list">
-            {items.map((item) => (
-              <EntityRow key={item.id} item={item} />
-            ))}
-          </div>
-        )}
-      </div>
+      {!collapsed && (
+        <div style={{ marginTop: title || toolbar || showToggle ? 'var(--sp-4)' : 0 }}>
+          {current === 'card' ? (
+            <div className="entity-grid">
+              {items.map((item) => (
+                <EntityCard key={item.id} item={item} />
+              ))}
+            </div>
+          ) : (
+            <div className="entity-list">
+              {items.map((item) => (
+                <EntityRow key={item.id} item={item} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -187,13 +223,16 @@ function EntityToolbar({
   title,
   toolbar,
   toggle,
+  collapse,
 }: {
   title?: ReactNode;
   toolbar?: ReactNode;
   toggle?: ReactNode;
+  collapse?: ReactNode;
 }) {
   return (
     <div className="entity-toolbar">
+      {collapse}
       {title && <span className="entity-toolbar__title">{title}</span>}
       {toolbar}
       <span style={{ flex: 1 }} />

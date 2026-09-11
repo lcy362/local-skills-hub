@@ -84,7 +84,18 @@ export interface MergeGroup { name: string; candidates: MergeCandidate[] }
 /** /integrate/preview 出参（IM-02 去重确认） */
 export interface IntegrateCandidate { id: string; name: string; source: string; sourceLabel: string; dir: string; inRepo: boolean; description?: string }
 export interface IntegrateGroup { name: string; candidates: IntegrateCandidate[] }
-export interface AgentCollectItem { name: string; description?: string; tags: string[]; exists: boolean }
+export interface AgentCollectItem {
+  name: string;
+  description?: string;
+  tags: string[];
+  exists: boolean;
+  /** skill 本体是否为软链 */
+  symlink: boolean;
+  /** 软链解析后的真实目标 */
+  linkTarget?: string;
+  /** 软链目标是否落在目标仓库内（如接管生成的仓库本体软链） */
+  inRepo?: boolean;
+}
 export interface AgentCollectPreview { agentKey: string; agentName: string; installedDir: string; items: AgentCollectItem[] }
 export interface CollectResult { collected: string[]; skipped: string[] }
 export interface SkillContent { id: string; dir: string; content: string; files: string[] }

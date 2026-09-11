@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { api, type StateView, type RepoView, type SourceView, type SkillContent, type AgentCollectPreview, type ImportPreviewItem, type SkillAction } from '../api/types';
+import { api, type StateView, type RepoView, type SourceView, type SkillContent, type AgentCollectPreview, type AgentCollectItem, type ImportPreviewItem, type SkillAction } from '../api/types';
 import { skillViewToCard } from '../components/skill/adapters';
 import SkillList from '../components/skill/SkillList';
 import EntityList, { type EntityItem } from '../components/common/EntityList';
@@ -8,6 +8,7 @@ import IntegrateWizard from '../components/integrate/IntegrateWizard';
 import PageHeader from '../components/ui/PageHeader';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
+import Segment from '../components/ui/Segment';
 import Badge from '../components/ui/Badge';
 import EmptyState from '../components/ui/EmptyState';
 import LoadingBoundary from '../components/ui/LoadingBoundary';
@@ -16,6 +17,7 @@ import MultiSelect from '../components/ui/MultiSelect';
 import { FieldInput, FieldSelect } from '../components/ui/Field';
 import SwitchLabel from '../components/ui/SwitchLabel';
 import { PathField, PathListField } from '../components/ui/PathField';
+import Switch from '../components/ui/Switch';
 import { useToast } from '../components/ui/Toast';
 import { useAsync } from '../state/useAsync';
 import { useViewMode } from '../state/viewMode';
@@ -27,7 +29,6 @@ export default function Library() {
   const { data, loading, error, reload } = useAsync<StateView>(() => api('/state'));
   const toast = useToast();
   const route = useRoute();
-  const [importOpen, setImportOpen] = useState(false);
   const [integrateOpen, setIntegrateOpen] = useState(false);
 
   // 详情弹层与筛选条件都写进地址，刷新后可完整复原当前页面
@@ -93,12 +94,7 @@ export default function Library() {
       <PageHeader
         title="技能库"
         sub={data ? `共 ${data.skills.length} 个技能` : undefined}
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => setIntegrateOpen((v) => !v)}>整合向导</Button>
-            <Button onClick={() => setImportOpen(true)}>导入</Button>
-          </>
-        }
+        actions={<Button variant="ghost" onClick={() => setIntegrateOpen((v) => !v)}>整合向导</Button>}
       />
 
       {integrateOpen && (
@@ -141,7 +137,7 @@ export default function Library() {
       <div className="panel">
         <LoadingBoundary
           state={{ loading, error, data }}
-          empty={{ title: '技能库为空', hint: '尚未导入任何技能。点击「导入」从目录导入，或在下方登记仓库/来源。', icon: '◈' }}
+          empty={{ title: '技能库为空', hint: '尚未导入任何技能。先在下方登记自有仓库，再通过其「归集 / 导入」添加技能。', icon: '◈' }}
         >
           {() => (
             <SkillList
@@ -151,6 +147,8 @@ export default function Library() {
               onTag={(item) => openDetail(item.id)}
               onOpen={(item) => openDetail(item.id)}
               hideToggle
+              collapsible
+              storageKey="lsh.collapsed.library.skills"
             />
           )}
         </LoadingBoundary>
@@ -169,8 +167,6 @@ export default function Library() {
         onClose={closeDetail}
         onSaved={() => { closeDetail(); reload(); }}
       />
-
-      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onDone={reload} />
     </>
   );
 }
@@ -178,11 +174,12 @@ export default function Library() {
 /** 卡片上定位到的一条仓库：kind 与 API 路由对齐（repo → /repos，source → /sources） */
 type WarehouseTarget = (RepoView & { kind: 'repo' }) | (SourceView & { kind: 'source' });
 
-/* 统一管理自有仓库 + 第三方仓库（不按来源切分技能管理，仅作概念区分） */
+/* 仓库管理。技能入库动作（归集 / 导入）挂在自有仓库上：第三方仓库作为独立仓库维护，
+ * 但当其技能被自有仓库导入时，它只是数据源目录，无需任何登记。 */
 function ReposAndSources({ repos, sources, reload }: { repos: RepoView[]; sources: SourceView[]; reload: () => void }) {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
-  const [collectFor, setCollectFor] = useState<RepoView | null>(null);
+  const [addFor, setAddFor] = useState<RepoView | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<WarehouseTarget | null>(null);
 
@@ -190,19 +187,6 @@ function ReposAndSources({ repos, sources, reload }: { repos: RepoView[]; source
     try {
       await api(`/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' });
       toast.push('已删除', 'good');
-    } catch (e) {
-      toast.push(e instanceof Error ? e.message : String(e), 'bad');
-    } finally {
-      setBusy(null);
-      reload();
-    }
-  };
-
-  const adopt = async (id: string) => {
-    setBusy(`adopt:${id}`);
-    try {
-      const res = await api<{ imported: string[]; skipped: string[] }>(`/sources/${encodeURIComponent(id)}/adopt`, { method: 'POST', body: JSON.stringify({}) });
-      toast.push(`已收编 ${res.imported.length} 个技能`, 'good');
     } catch (e) {
       toast.push(e instanceof Error ? e.message : String(e), 'bad');
     } finally {
@@ -223,8 +207,8 @@ function ReposAndSources({ repos, sources, reload }: { repos: RepoView[]; source
       actions: (
         <>
           <Button size="sm" variant="ghost" onClick={() => setEditTarget({ ...repo, kind: 'repo' })}>编辑</Button>
-          <Button size="sm" variant="primary" loading={busy === repo.id} onClick={() => setCollectFor(repo)} title="从已安装 Agent 归集 skill 到本仓库">
-            归集
+          <Button size="sm" variant="primary" onClick={() => setAddFor(repo)} title="从已安装 Agent 归集，或从外部目录导入（如第三方库，仅作数据源）">
+            添加技能
           </Button>
           <Button size="sm" variant="danger" loading={busy === `del:${repo.id}`} onClick={() => remove('repos', repo.id)}>删除</Button>
         </>
@@ -235,20 +219,10 @@ function ReposAndSources({ repos, sources, reload }: { repos: RepoView[]; source
       title: s.name || s.id,
       sub: <span className="mono">{s.path}</span>,
       status: <Badge tone="accent">第三方仓库</Badge>,
-      badges: (
-        <>
-          <Badge tone="neutral">{s.layout}</Badge>
-          <Badge tone={s.linked ? 'info' : 'good'}>{s.linked ? '只读引用' : '已收编'}</Badge>
-        </>
-      ),
+      badges: <Badge tone="neutral">{s.layout}</Badge>,
       actions: (
         <>
           <Button size="sm" variant="ghost" onClick={() => setEditTarget({ ...s, kind: 'source' })}>编辑</Button>
-          {s.linked && (
-            <Button size="sm" variant="primary" loading={busy === `adopt:${s.id}`} onClick={() => adopt(s.id)} title="拷贝本体进仓库并接管后续版本（EK-03）">
-              收编
-            </Button>
-          )}
           <Button size="sm" variant="danger" loading={busy === `del:${s.id}`} onClick={() => remove('sources', s.id)}>删除</Button>
         </>
       ),
@@ -270,69 +244,184 @@ function ReposAndSources({ repos, sources, reload }: { repos: RepoView[]; source
         onClose={() => { setCreateOpen(false); setEditTarget(null); }}
         onDone={() => { setCreateOpen(false); setEditTarget(null); reload(); }}
       />
-      <CollectModal repo={collectFor} onClose={() => setCollectFor(null)} onDone={() => { setCollectFor(null); reload(); }} />
+      <AddSkillsModal repo={addFor} onClose={() => setAddFor(null)} onDone={() => { setAddFor(null); reload(); }} />
     </>
   );
 }
 
-/** 从 Agent 归集（IM-01）：选一个已安装 Agent，把其目录里的 skill 收进仓库 */
-function CollectModal({ repo, onClose, onDone }: { repo: RepoView | null; onClose: () => void; onDone: () => void }) {
+/** 添加技能到自有仓库：归集（Agent 目录）与导入（外部数据源目录）的合并入口，进入后再选方式 */
+function AddSkillsModal({ repo, onClose, onDone }: { repo: RepoView | null; onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState<'collect' | 'import'>('collect');
+  const [wasOpen, setWasOpen] = useState(false);
+  if (!!repo !== wasOpen) {
+    setWasOpen(!!repo);
+    if (repo) setMode('collect');
+  }
+  return (
+    <Modal open={!!repo} title={repo ? `添加技能到 ${repo.name || repo.id}` : ''} onClose={onClose} width={560}>
+      {repo && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+          <Segment
+            options={[
+              { label: '从 Agent 归集', value: 'collect' },
+              { label: '从目录导入', value: 'import' },
+            ]}
+            value={mode}
+            onChange={setMode}
+          />
+          {/* key 保证切换方式时重置面板内部状态 */}
+          {mode === 'collect'
+            ? <CollectPanel key="collect" repo={repo} onClose={onClose} onDone={onDone} />
+            : <ImportPanel key="import" repo={repo} onClose={onClose} onDone={onDone} />}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * 从 Agent 归集（IM-01）：两步流程（面板，由 AddSkillsModal 承载）。
+ * 第一步按 Agent 分组展示其 skill 清单（标注真实目录 / 软链及指向），逐个勾选；
+ * 第二步汇总确认后写入仓库。已在仓库、或软链指向仓库本体的项不可选（执行时也会被去重跳过）。
+ */
+function CollectPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
-  const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<'select' | 'confirm'>('select');
+  /** agentKey → 已勾选的 skill 名 */
+  const [picked, setPicked] = useState<Record<string, string[]>>({});
   const { data, loading } = useAsync<AgentCollectPreview[]>(
-    () => (repo ? api(`/repos/${encodeURIComponent(repo.id)}/collect/preview`) : Promise.resolve([])),
-    [repo?.id]
+    () => api(`/repos/${encodeURIComponent(repo.id)}/collect/preview`),
+    [repo.id]
   );
 
+  const agents = data ?? [];
+  /** 不可选：已在仓库，或软链指向仓库本体（归集等于复制自己） */
+  const unselectable = (it: AgentCollectItem) => it.exists || (it.symlink && it.inRepo);
+
+  const toggleSkill = (agentKey: string, name: string) =>
+    setPicked((p) => {
+      const cur = p[agentKey] ?? [];
+      return { ...p, [agentKey]: cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name] };
+    });
+
+  const toggleAgent = (a: AgentCollectPreview) => {
+    const names = a.items.filter((it) => !unselectable(it)).map((it) => it.name);
+    setPicked((p) => {
+      const cur = p[a.agentKey] ?? [];
+      const all = names.length > 0 && names.every((n) => cur.includes(n));
+      return { ...p, [a.agentKey]: all ? [] : names };
+    });
+  };
+
+  const selections = agents
+    .map((a) => ({ agent: a, names: picked[a.agentKey] ?? [] }))
+    .filter((s) => s.names.length > 0);
+  const totalPicked = selections.reduce((n, s) => n + s.names.length, 0);
+  const existsCount = agents.reduce((n, a) => n + a.items.filter((it) => it.exists).length, 0);
+
   const run = async () => {
-    if (!repo) return;
     setBusy(true);
     try {
       const res = await api<{ collected: string[]; skipped: string[] }>(
         `/repos/${encodeURIComponent(repo.id)}/collect`,
-        { method: 'POST', body: JSON.stringify({ agentKeys: picked }) }
+        { method: 'POST', body: JSON.stringify({ selections: selections.map((s) => ({ agentKey: s.agent.agentKey, names: s.names })) }) }
       );
-      toast.push(`已归集 ${res.collected.length} 个技能`, 'good');
+      toast.push(`已归集 ${res.collected.length} 个技能${res.skipped.length ? `，跳过 ${res.skipped.length}` : ''}`, 'good');
       onDone();
     } catch (e) {
       toast.push(e instanceof Error ? e.message : String(e), 'bad');
     } finally { setBusy(false); }
   };
 
-  const items: EntityItem[] = (data ?? []).map((a) => ({
-    id: a.agentKey,
-    title: a.agentName,
-    sub: <span className="mono">{a.installedDir} · {a.items.length} 项</span>,
-    toggle: (
-      <span onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={picked.includes(a.agentKey)}
-          onChange={(e) => setPicked((p) => (e.target.checked ? [...p, a.agentKey] : p.filter((k) => k !== a.agentKey)))}
+  if (step === 'confirm') {
+    return (
+      <>
+        <div style={{ fontSize: 'var(--fs-13)', color: 'var(--c-ink-2)' }}>
+          将把 <strong>{totalPicked}</strong> 个技能复制进 <span className="mono">{repo.name || repo.id}</span>，agent 目录保持不动：
+        </div>
+        <EntityList
+          mode="list"
+          toggle={false}
+          items={selections.flatMap((s) =>
+            s.names.map((name) => ({
+              id: `${s.agent.agentKey}:${name}`,
+              title: name,
+              sub: <span className="mono">{s.agent.agentName} · {s.agent.installedDir}</span>,
+            }))
+          )}
         />
-      </span>
-    ),
-    onClick: () =>
-      setPicked((p) => (p.includes(a.agentKey) ? p.filter((k) => k !== a.agentKey) : [...p, a.agentKey])),
-  }));
+        {existsCount > 0 && (
+          <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>
+            另有 {existsCount} 个同名技能已在仓库，将自动去重跳过。
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)', paddingTop: 'var(--sp-2)' }}>
+          <Button variant="ghost" onClick={() => setStep('select')}>返回</Button>
+          <Button variant="primary" loading={busy} onClick={run}>确认归集</Button>
+        </div>
+      </>
+    );
+  }
 
   return (
-    <Modal
-      open={!!repo}
-      title={repo ? `归集到 ${repo.id}` : ''}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button variant="primary" loading={busy} disabled={picked.length === 0} onClick={run}>归集</Button>
-        </>
-      }
-    >
+    <>
       {loading && <span style={{ color: 'var(--c-ink-3)' }}>扫描中…</span>}
-      {!loading && (data ?? []).length === 0 && <EmptyState title="没有已安装的 Agent 可归集" />}
-      <EntityList items={items} toggle={false} empty={null} />
-    </Modal>
+      {!loading && agents.length === 0 && <EmptyState title="没有已安装的 Agent 可归集" />}
+      {agents.map((a) => {
+        const selectable = a.items.filter((it) => !unselectable(it)).map((it) => it.name);
+        const cur = picked[a.agentKey] ?? [];
+        const selectedCount = selectable.filter((n) => cur.includes(n)).length;
+        const allSelected = selectable.length > 0 && selectedCount === selectable.length;
+        return (
+          <EntityList
+            key={a.agentKey}
+            mode="list"
+            toggle={false}
+            title={
+              <span>
+                {a.agentName}
+                <span className="mono" style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', marginLeft: 'var(--sp-2)' }}>
+                  {a.agentKey} · {a.items.length} 项
+                </span>
+              </span>
+            }
+            toolbar={
+              selectable.length > 0 ? (
+                <SwitchLabel checked={allSelected} onChange={() => toggleAgent(a)}>
+                  全选（{selectedCount}/{selectable.length}）
+                </SwitchLabel>
+              ) : undefined
+            }
+            items={a.items.map((it) => ({
+              id: it.name,
+              title: it.name,
+              sub: <span className="mono">{it.symlink ? `软链 → ${it.linkTarget ?? '(悬空)'}` : '真实目录'}</span>,
+              desc: it.description,
+              status: it.exists ? (
+                <Badge tone="neutral">已在仓库</Badge>
+              ) : it.symlink && it.inRepo ? (
+                <Badge tone="info" title={`软链指向仓库本体：${it.linkTarget}`}>仓库本体</Badge>
+              ) : it.symlink ? (
+                <Badge tone="accent">软链</Badge>
+              ) : undefined,
+              muted: unselectable(it),
+              toggle: unselectable(it) ? undefined : (
+                <Switch
+                  aria-label={`归集 ${it.name}`}
+                  checked={cur.includes(it.name)}
+                  onChange={() => toggleSkill(a.agentKey, it.name)}
+                />
+              ),
+            }))}
+          />
+        );
+      })}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)', paddingTop: 'var(--sp-2)' }}>
+        <Button variant="ghost" onClick={onClose}>关闭</Button>
+        <Button variant="primary" disabled={totalPicked === 0} onClick={() => setStep('confirm')}>下一步：确认</Button>
+      </div>
+    </>
   );
 }
 
@@ -344,10 +433,9 @@ interface WarehouseDraft {
   path: string;
   layout: string;
   root: string;
-  linked: boolean;
 }
 
-const EMPTY_DRAFT: WarehouseDraft = { kind: 'repo', id: '', name: '', path: '', layout: 'auto', root: '', linked: true };
+const EMPTY_DRAFT: WarehouseDraft = { kind: 'repo', id: '', name: '', path: '', layout: 'auto', root: '' };
 
 /** 自有仓库缺省扫描 <路径>/skills */
 function skillsRootOf(p: string): string {
@@ -358,9 +446,9 @@ function skillsRootOf(p: string): string {
 function draftFrom(target: WarehouseTarget | null | undefined): WarehouseDraft {
   if (!target) return EMPTY_DRAFT;
   if (target.kind === 'source') {
-    return { kind: 'source', id: target.id, name: target.name ?? '', path: target.path, layout: target.layout, root: '', linked: target.linked };
+    return { kind: 'source', id: target.id, name: target.name ?? '', path: target.path, layout: target.layout, root: '' };
   }
-  return { kind: 'repo', id: target.id, name: target.name ?? '', path: target.path, layout: target.layout, root: target.root ?? '', linked: true };
+  return { kind: 'repo', id: target.id, name: target.name ?? '', path: target.path, layout: target.layout, root: target.root ?? '' };
 }
 
 /**
@@ -430,10 +518,10 @@ function WarehouseModal({
         if (editing) {
           await api(`/sources/${encodeURIComponent(id)}`, {
             method: 'PUT',
-            body: JSON.stringify({ name, path, layout: d.layout, linked: d.linked, root: d.root.trim() || undefined, kind: 'source' }),
+            body: JSON.stringify({ name, path, layout: d.layout, root: d.root.trim() || undefined, kind: 'source' }),
           });
         } else {
-          await api('/sources', { method: 'POST', body: JSON.stringify({ id, name, path, layout: d.layout, linked: d.linked }) });
+          await api('/sources', { method: 'POST', body: JSON.stringify({ id, name, path, layout: d.layout }) });
         }
       }
       toast.push(editing ? '仓库已更新' : `已登记${d.kind === 'repo' ? '自有仓库' : '第三方仓库'} ${id}`, 'good');
@@ -496,22 +584,11 @@ function WarehouseModal({
 
         <PathField label="路径" placeholder="/path/to/library" value={d.path} onChange={(v) => set('path', v)} />
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)', alignItems: 'flex-end' }}>
-          <FieldSelect label="布局" value={d.layout} onChange={(e) => set('layout', e.target.value)}>
-            <option value="auto">auto（自动检测）</option>
-            <option value="nested">nested（嵌套分类）</option>
-            <option value="flat">flat（扁平）</option>
-          </FieldSelect>
-          {d.kind === 'source' && (
-            <SwitchLabel
-              checked={d.linked}
-              onChange={(v) => set('linked', v)}
-              title="只读关联：不拷贝本体，上游保持干净；需要接管时再点「收编」"
-            >
-              只读关联
-            </SwitchLabel>
-          )}
-        </div>
+        <FieldSelect label="布局" value={d.layout} onChange={(e) => set('layout', e.target.value)}>
+          <option value="auto">auto（自动检测）</option>
+          <option value="nested">nested（嵌套分类）</option>
+          <option value="flat">flat（扁平）</option>
+        </FieldSelect>
 
         {d.kind === 'repo' && (
           <FieldInput
@@ -640,8 +717,12 @@ function SkillDetailModal({
   );
 }
 
-/** 批量导入（EK-02）：每行一个目录 */
-function ImportModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+/**
+ * 仓库级批量导入（EK-02）：把外部目录里的 skill 拷贝进指定自有仓库（面板，由 AddSkillsModal 承载）。
+ * 目录仅作为本次导入的数据源（如第三方库的 skills 目录），不会登记进系统；
+ * 同名 skill 已在目标仓库则去重跳过，导入的技能带来源追溯（origin=源目录）。
+ */
+function ImportPanel({ repo, onClose, onDone }: { repo: RepoView; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const [text, setText] = useState('');
   const [preview, setPreview] = useState<ImportPreviewItem[] | null>(null);
@@ -662,8 +743,10 @@ function ImportModal({ open, onClose, onDone }: { open: boolean; onClose: () => 
   const runImport = async () => {
     setBusy(true);
     try {
-      await api('/import', { method: 'POST', body: JSON.stringify({ dirs }) });
-      toast.push('导入完成', 'good');
+      const res = await api<{ source: string; imported: string[]; skipped: string[] }[]>('/import', { method: 'POST', body: JSON.stringify({ dirs, repoId: repo.id }) });
+      const imported = res.reduce((n, r) => n + r.imported.length, 0);
+      const skipped = res.reduce((n, r) => n + r.skipped.length, 0);
+      toast.push(`已导入 ${imported} 个技能${skipped ? `，去重跳过 ${skipped}` : ''}`, 'good');
       setText(''); setPreview(null);
       onClose(); onDone();
     } catch (e) {
@@ -679,30 +762,25 @@ function ImportModal({ open, onClose, onDone }: { open: boolean; onClose: () => 
   }));
 
   return (
-    <Modal
-      open={open}
-      title="导入技能"
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>取消</Button>
-          <Button size="sm" onClick={runPreview} loading={busy} disabled={dirs.length === 0}>识别</Button>
-          <Button variant="primary" loading={busy} disabled={!preview} onClick={runImport}>开始导入</Button>
-        </>
-      }
-    >
+    <>
       <PathListField
-        label="目录（每行一个，支持扁平/嵌套/带索引清单三类结构）"
-        placeholder={'/path/to/skills\n/path/to/ume-skills'}
+        label="数据源目录（每行一个，支持扁平/嵌套/带索引清单三类结构）"
+        placeholder={'/path/to/skills\n/path/to/third-party-lib/skills'}
         rows={4}
         value={text}
         onChange={setText}
       />
+      <div style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', marginTop: 'calc(-1 * var(--sp-2))' }}>
+        目录仅作为导入的数据源，不会登记进系统；同名技能已存在时自动跳过。
+      </div>
       {preview && (
-        <div style={{ marginTop: 'var(--sp-3)' }}>
-          <EntityList items={items} title={`识别结果（${items.length}）`} toggle={false} />
-        </div>
+        <EntityList items={items} title={`识别结果（${items.length}）`} toggle={false} />
       )}
-    </Modal>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--sp-2)' }}>
+        <Button variant="ghost" onClick={onClose}>关闭</Button>
+        <Button size="sm" onClick={runPreview} loading={busy} disabled={dirs.length === 0}>识别</Button>
+        <Button variant="primary" loading={busy} disabled={!preview} onClick={runImport}>开始导入</Button>
+      </div>
+    </>
   );
 }

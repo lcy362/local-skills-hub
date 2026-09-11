@@ -11,7 +11,7 @@ import * as active from '../core/active.js';
 import { syncActive, diffSync, computeDesired, desiredContext } from '../core/sync.js';
 import { previewGroups, applyAdoption, collectCandidates } from '../core/integrate.js';
 import { addProject, syncProject, projectSkillRows, projectAddable, deployedAgents, pushProjectToRepo } from '../core/projects.js';
-import { importDirs, previewImportDirs, adoptSource } from '../core/import.js';
+import { importDirs, previewImportDirs } from '../core/import.js';
 import { previewCollect, collectAgentSkill } from '../core/collect.js';
 import { migrateTagsToFrontmatter } from '../core/repo-tags.js';
 import { takeover } from '../core/takeover.js';
@@ -176,20 +176,27 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
   r.post('/repos/:id/collect', (req, res) => {
     const repo = cfg.data.repos.find((x) => x.id === req.params.id);
     if (!repo) return res.status(404).json({ error: 'repo not found' });
-    const { agentKey, agentKeys, names } = req.body ?? {};
-    const keys: string[] = Array.isArray(agentKeys)
-      ? agentKeys
-      : agentKey
-        ? [String(agentKey)]
-        : listAgents(cfg.data).filter((a) => a.installed).map((a) => a.key);
-    if (keys.length === 0) return res.status(400).json({ error: '无已安装 agent 可归集' });
+    const { agentKey, agentKeys, names, selections } = req.body ?? {};
+    // 优先 selections（按 agent 指定 skill 明细）；兼容旧 agentKeys/agentKey（收全部）
+    const sel: { agentKey: string; names?: string[] }[] = Array.isArray(selections)
+      ? selections.map((s: { agentKey: unknown; names?: unknown }) => ({
+          agentKey: String(s.agentKey),
+          names: Array.isArray(s.names) ? s.names.map(String) : undefined,
+        }))
+      : (Array.isArray(agentKeys)
+          ? agentKeys
+          : agentKey
+            ? [String(agentKey)]
+            : listAgents(cfg.data).filter((a) => a.installed).map((a) => a.key)
+        ).map((k) => ({ agentKey: k, names: Array.isArray(names) ? names.map(String) : undefined }));
+    if (sel.length === 0) return res.status(400).json({ error: '无已安装 agent 可归集' });
     try {
-      const results = keys.map((k) => collectAgentSkill(cfg, repo, k, Array.isArray(names) ? names : undefined));
+      const results = sel.map((s) => collectAgentSkill(cfg, repo, s.agentKey, s.names));
       touch();
       res.json({
         collected: results.flatMap((x) => x.collected),
         skipped: results.flatMap((x) => x.skipped),
-        byAgent: results.map((x, i) => ({ agent: keys[i], ...x })),
+        byAgent: results.map((x, i) => ({ agent: sel[i].agentKey, ...x })),
       });
     } catch (e) { res.status(500).json({ error: String(e) }); }
   });
@@ -246,16 +253,6 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
     touch();
     res.json(warehouses());
   });
-  // 收编：把只读关联的第三方仓库拷贝进仓库本体并接管（EK-03）
-  r.post('/sources/:id/adopt', (req, res) => {
-    const { repoId } = req.body ?? {};
-    try {
-      const result = adoptSource(cfg, req.params.id, repoId ? String(repoId) : undefined);
-      touch();
-      res.json(result);
-    } catch (e) { res.status(400).json({ error: (e as Error).message }); }
-  });
-
   // ---- custom agents（AG-03） ----
   r.get('/agents/custom', (_req, res) => res.json(cfg.data.customAgents));
   r.post('/agents/custom', (req, res) => {

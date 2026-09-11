@@ -669,6 +669,35 @@ select.field {
   font-size: var(--fs-16);
   font-weight: var(--fw-semibold);
 }
+.entity-toolbar__collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--c-ink-3);
+  cursor: pointer;
+  transition: background var(--dur-150) var(--ease), color var(--dur-150) var(--ease);
+}
+.entity-toolbar__collapse:hover {
+  background: var(--c-surface-3);
+  color: var(--c-ink-1);
+}
+.entity-toolbar__collapse:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+.entity-toolbar__collapse svg {
+  transition: transform var(--dur-150) var(--ease);
+}
+.entity-toolbar__collapse[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
 .filter-row {
   display: flex;
   gap: var(--sp-2);

@@ -11,6 +11,12 @@ export interface AgentCollectItem {
   tags: string[];
   /** 是否已存在于目标仓库（重名将去重跳过） */
   exists: boolean;
+  /** skill 本体是否为软链（区别于真实目录存储） */
+  symlink: boolean;
+  /** 软链解析后的真实目标（绝对路径）；悬空软链时为 readlink 原始值 */
+  linkTarget?: string;
+  /** 软链目标是否落在目标仓库内（如此前「接管」生成的仓库本体软链） */
+  inRepo?: boolean;
 }
 export interface AgentCollectPreview {
   agentKey: string;
@@ -21,24 +27,45 @@ export interface AgentCollectPreview {
 export interface CollectResult { collected: string[]; skipped: string[] }
 
 function skillsRootOf(repo: Repo): string {
-  return path.join(expandTilde(repo.path), 'skills');
+  return repo.root ? expandTilde(repo.root) : path.join(expandTilde(repo.path), 'skills');
 }
 
 /**
- * 预览：列出所有「已安装」agent 目录内的 skill，并标注在目标仓库中是否已存在。
- * 仅扫描，绝不写盘、不动 agent。
+ * 预览：列出所有「已安装」agent 目录内的 skill，标注是否已存在于目标仓库，
+ * 并区分本体是真实目录还是软链（含指向）。仅扫描，绝不写盘、不动 agent。
  */
 export function previewCollect(cfg: ConfigStore, repo: Repo): AgentCollectPreview[] {
   const root = skillsRootOf(repo);
   const out: AgentCollectPreview[] = [];
   for (const a of listAgents(cfg.data)) {
     if (!a.installed) continue;
-    const items = scanDir(a.globalDir, `agent:${a.key}`, 'nested').map((s) => ({
-      name: s.name,
-      description: s.description,
-      tags: s.tags,
-      exists: fs.existsSync(path.join(root, s.name)),
-    }));
+    const items = scanDir(a.globalDir, `agent:${a.key}`, 'nested').map((s) => {
+      const exists = fs.existsSync(path.join(root, s.name));
+      const st = fs.lstatSync(s.dir, { throwIfNoEntry: false });
+      const symlink = st?.isSymbolicLink() ?? false;
+      let linkTarget: string | undefined;
+      let inRepo: boolean | undefined;
+      if (symlink) {
+        try {
+          linkTarget = fs.realpathSync(s.dir);
+          // macOS 下 /tmp 是 /private/tmp 的软链，root 与 realpath 结果必须同口径比较
+          const realRoot = fs.realpathSync(root);
+          inRepo = linkTarget === realRoot || linkTarget.startsWith(realRoot + path.sep);
+        } catch {
+          // 悬空软链：realpath 失败，退回 readlink 原始值供展示
+          try { linkTarget = fs.readlinkSync(s.dir); } catch { /* ignore */ }
+        }
+      }
+      return {
+        name: s.name,
+        description: s.description,
+        tags: s.tags,
+        exists,
+        symlink,
+        linkTarget,
+        inRepo,
+      };
+    });
     out.push({ agentKey: a.key, agentName: a.name, installedDir: a.globalDir, items });
   }
   return out;
