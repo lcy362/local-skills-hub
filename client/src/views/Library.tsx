@@ -841,17 +841,25 @@ function SkillDetailModal({
     [id]
   );
 
+  /** 标签输入归一化：按换行拆分、trim、去空、去重（兼容粘贴多行/未确认直接保存） */
+  const addTagInput = (input: string, base: string[]): string[] => {
+    const out = [...base];
+    for (const seg of input.split(/\r?\n/)) {
+      const t = seg.trim();
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+  };
+
   const addNew = () => {
-    const t = newTag.trim();
-    if (t && !tags.includes(t)) setTags((p) => [...p, t]);
+    setTags((p) => addTagInput(newTag, p));
     setNewTag('');
   };
 
   const save = async () => {
     if (!skill) return;
     // 输入框中未点「添加」/未回车确认的文本，保存时一并纳入，避免「输入了却打不上」
-    const t = newTag.trim();
-    const finalTags = t && !tags.includes(t) ? [...tags, t] : tags;
+    const finalTags = newTag.trim() ? addTagInput(newTag, tags) : tags;
     setSaving(true);
     try {
       await api(`/skills/${encodeURIComponent(skill.id)}`, { method: 'PATCH', body: JSON.stringify({ tags: finalTags }) });

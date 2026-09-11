@@ -426,13 +426,25 @@ export function makeRouter(cfg: ConfigStore, opts?: { onChanged?: () => void; on
   // 打标签：只写入 config.skillMeta（覆盖 SKILL.md frontmatter），满足 TG-01
   r.patch('/skills/:id', (req, res) => {
     const id = decodeURIComponent(req.params.id);
+    // 防御：skill id 不应含控制字符（如换行），避免 config 再次出现损坏 key
+    if (/[\u0000-\u001f]/.test(id)) return res.status(400).json({ error: '非法 skill id（含控制字符）' });
     if (!Array.isArray(req.body?.tags)) return res.status(400).json({ error: 'tags required' });
-    const tags = req.body.tags;
+    // 归一化：仅收字符串、按换行拆分、trim、去空、去重，保证落库标签始终干净
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const raw of req.body.tags) {
+      if (typeof raw !== 'string') continue;
+      for (const seg of raw.split(/[\r\n]+/)) {
+        const t = seg.trim();
+        if (t && !seen.has(t)) { seen.add(t); tags.push(t); }
+      }
+    }
     const meta = cfg.data.skillMeta[id] ?? { tags: [] };
     meta.tags = tags;
     cfg.data.skillMeta[id] = meta;
     cfg.save();
     touch();
+    log.info('http', '保存技能标签', { id, tags: tags.length });
     res.json(meta);
   });
 
