@@ -42,7 +42,7 @@
 | **A2 INDEX.md 第二事实源** | `projectedSkills` 不再读回 INDEX.md；期望集纯由 config 推导。INDEX.md 降级为纯产物 |
 | **B1 首启强制引导** | 删除 `Onboarding` 视图与 `onboarded` 状态；其能力并入「整合向导」「归集」「登记库」 |
 | **B4 takeover 隐藏备份** | 保留为 API（IM-03），但不进主流程 |
-| **孤儿 API** | `takeover`/`tags-migrate`/`repos/:id` PUT/`filesystem/pick` 等保留但不再假装被用；`collect`、`import/preview` 已修好并接线 |
+| **孤儿 API** | `takeover`/`tags-migrate`/`repos/:id` PUT 等保留但不再假装被用；`collect`、`import/preview`、`filesystem/pick`、`filesystem/pick-file` 已修好并接线（见 §五） |
 
 ---
 
@@ -59,3 +59,18 @@
 - **PJ-04 定期同步**：手动 + 可选 watcher 已具备，「定期」需调度器，未引入。
 - **UI-02 WebSocket**：仍为纯 REST（PRD 中 WS 为可选）。
 - **PR-04 预设集导入**：兼容 skills-manager preset 集的导入未实现。
+
+---
+
+## 五、UI 一致性与交互补齐（UI-03）
+
+| 项 | 实现 | 位置 |
+|---|---|---|
+| **浏览/搜索/过滤（标签/来源/名字）** | 搜索、来源、标签、未打标签四类条件收敛进同一条筛选栏；条件生效时出现「重置」；标签组默认折叠，有选中时自动常驻展开 | `components/common/FilterBar.tsx`、`views/Library.tsx` |
+| **列表展示统一（卡片优先）** | 技能 / 预设 / 项目 / Agent / 仓库 / 来源 / 整合候选共用 `EntityList`，默认卡片、可切列表，偏好全局记忆 | `components/common/EntityList.tsx` |
+| **工具条控件对齐** | 新增 `--control-h` token，输入框/下拉/开关/按钮统一高度；右侧筛选簇设为不可压缩、作为整体换行 | `styles/tokens.css`、`styles/app.css` |
+| **系统文件选择器** | 登记库路径、导入目录、新建项目路径、Agent 全局目录、自定义 Agent 目录均可一键调起原生选择器（相对路径除外） | `components/ui/PathField.tsx`、`core/picker.ts` |
+| **字段语义修正** | 技能库是资产池、无启用/停用语义，`SkillCardView.state` 改为可选，缺省时不渲染状态徽标（此前恒显「启用」） | `components/skill/adapters.ts`、`SkillBadges.tsx` |
+| **页面状态可刷新** | 一级页面、二级详情、筛选条件全部随 hash 地址持久化 | `state/router.ts` |
+
+配套约定见 `docs/key-conventions.md` §七（前端约定类 F1–F4）。

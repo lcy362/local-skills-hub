@@ -116,6 +116,32 @@
 
 ---
 
+## 七、前端约定类
+
+> 后端约定保证「数据不漂移」，前端约定保证「同一件事只有一处实现、只有一份状态」。
+
+### F1. URL 是页面状态的唯一来源（NFR: 可刷新 / 可分享）
+- **含义**：一级页面、二级详情标识、页面内筛选与搜索条件全部写进 hash 地址（`#/<tab>[/<sub>][?<query>]`），组件内部 state 只承载「弹窗开关」这类瞬时 UI。
+- **佐证**：`state/router.ts` 的 `useRoute` / `useQueryParam` / `useQueryFlag` / `useQueryValue`；`views/Library.tsx` 的详情用 `route.sub`，筛选用 query。
+- **约束**：新增页面时，详情选中项与筛选条件必须走 router；不得在组件内 `useState` 保存「当前在看哪一个」。高频输入（搜索）用 `{ replace: true }`，避免污染历史栈。
+
+### F2. 近似展示复用通用组件，不内联重写
+- **含义**：凡是「一组实体的列表」——技能、预设、项目、Agent、仓库、来源、整合候选——都映射为同一份展示契约后交给同一个容器渲染，保证各页风格与交互一致。
+- **佐证**：`components/common/EntityList.tsx`（卡片优先，可切列表，偏好全局共享）、`components/common/FilterBar.tsx`（搜索 + 筛选 + 可折叠条件组）、`components/skill/SkillList.tsx`、`components/skill/AddableSkillList.tsx`。
+- **约束**：新增列表型 UI 时先扩 `EntityItem` 契约或 `FilterBar` 的插槽；不得在新视图里手写 `.entity-row` / `.entity-card` 结构。一套交互只允许一份实现（例如开关+文字标签统一用 `ui/SwitchLabel`）。
+
+### F3. 视觉一律走 token，组件不内联色值
+- **含义**：颜色、字号、间距、圆角、动效时长与缓动、字体族全部引用 `client/src/styles/tokens.css` 的命名变量；同一条工具条内的可交互控件统一高度（`--control-h`）。
+- **佐证**：`--c-*` / `--sp-*` / `--fs-*` / `--r-*` / `--dur-*` / `--ease` / `--ff-*` / `--control-h`；暗色主题由 `html[data-theme="dark"]` 整块覆写。
+- **约束**：需要新色值或新字体时，先在 token 块中登记命名变量再引用；不得在组件里写 hex / 字体名。（标题用 `--ff-display`，正文用 `--ff-sans`，注意标题字重需落在已加载的 500/600/700 内。）
+
+### F4. 路径输入统一可调起系统选择器
+- **含义**：凡是需要填写文件/目录**绝对路径**的地方，都要能一键调起系统原生选择器，而不是只让用户手打。
+- **佐证**：`components/ui/PathField.tsx`（`PathField` 单行 / `PathListField` 多行）、`api/picker.ts` → `core/picker.ts`（macOS osascript / Windows PowerShell / Linux zenity·kdialog）；用户取消返回 `null` 不报错。
+- **约束**：新增路径输入必须使用 `PathField`；只有**相对路径**（如 `.my-tool/skills`）因系统选择器无法表达，才允许保留纯文本输入并注明。
+
+---
+
 ## 汇总：一条判定流程（新功能自查用）
 
 ```
