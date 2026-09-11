@@ -35,7 +35,7 @@ export function skillToEntity(
   } = {}
 ): EntityItem {
   const { onToggle, onAction, onTag, onOpen } = opts;
-  const on = isOn(item);
+  const on = item.toggleOn ?? isOn(item);
   return {
     id: item.id,
     title: item.title || item.name,

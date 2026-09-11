@@ -59,6 +59,8 @@ export interface SkillCardView {
   store: SkillStore;
   /** 缺省表示该上下文没有启用/停用语义（如技能库资产池），此时不展示状态徽标 */
   state?: 'on' | 'off' | 'own-in-use';
+  /** 覆盖行首开关的选中态（缺省由 state 推导）；预设等以名单为准的上下文显式传入 */
+  toggleOn?: boolean;
   offOverride?: boolean;
   linkTarget?: string;
   preset?: string;
