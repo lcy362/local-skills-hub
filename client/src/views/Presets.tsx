@@ -256,7 +256,7 @@ function PresetDetail({
       </div>
 
       <div className="panel">
-        <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>关联标签（PR-05）</div>
+        <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>关联标签</div>
         <p style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)', marginTop: 0 }}>
           打有这些标签的技能会自动纳入本预设，与下方显式技能取并集。点击候选即添加/移除，也可输入新标签并回车创建。
         </p>

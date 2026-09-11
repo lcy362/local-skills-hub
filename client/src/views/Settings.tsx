@@ -123,7 +123,7 @@ export default function Settings() {
 
       <div className="panel">
         <div className="page-head__title" style={{ fontSize: 'var(--fs-16)', marginBottom: 'var(--sp-3)' }}>
-          同步策略（SY-02 / SY-04）
+          同步策略
         </div>
         <LoadingBoundary state={{ loading, error, data: settings }} empty={{ title: '无设置', icon: '⚙' }}>
           {(s) => (
@@ -158,14 +158,14 @@ export default function Settings() {
         {(customs ?? []).length === 0 ? (
           <>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
-              <span className="page-head__title" style={{ fontSize: 'var(--fs-16)' }}>自定义 Agent（AG-03）</span>
+              <span className="page-head__title" style={{ fontSize: 'var(--fs-16)' }}>自定义 Agent</span>
               <Button size="sm" onClick={() => setAddOpen(true)}>新增</Button>
             </div>
             <EmptyState title="暂无自定义 Agent" hint="内置清单之外的工具可在此登记，填写其全局 skill 目录。" />
           </>
         ) : (
           <EntityList
-            title="自定义 Agent（AG-03）"
+            title="自定义 Agent"
             toolbar={<Button size="sm" onClick={() => setAddOpen(true)}>新增</Button>}
             hideToggle
             items={(customs ?? []).map((c) => ({

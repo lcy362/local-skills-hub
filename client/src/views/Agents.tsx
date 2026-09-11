@@ -272,7 +272,7 @@ function AgentDetail({ agent, onBack, onChanged }: { agent: AgentView; onBack: (
 
       {lastSync && lastSync.failed.length > 0 && (
         <div className="panel">
-          <EntityList title="同步失败项（SY-05）" items={failedItems} />
+          <EntityList title="同步失败项" items={failedItems} />
         </div>
       )}
 
@@ -291,7 +291,7 @@ function AgentDetail({ agent, onBack, onChanged }: { agent: AgentView; onBack: (
 
       <div className="panel">
         <EntityList
-          title="按技能选择安装方式（SY-01）"
+          title="按技能选择安装方式"
           items={syncModeItems}
           empty={<EmptyState title="当前没有已启用的技能" />}
         />

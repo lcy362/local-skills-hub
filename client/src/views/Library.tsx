@@ -865,7 +865,7 @@ function SkillDetailModal({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)' }}>
             <Badge tone="info">{skill.source}</Badge>
             {skill.version && <Badge tone="neutral">v{skill.version}</Badge>}
-            {skill.origin && <Badge tone="accent" title="来源追溯（IM-04）">来自 {skill.origin}</Badge>}
+            {skill.origin && <Badge tone="accent" title="来源追溯">来自 {skill.origin}</Badge>}
           </div>
           <div className="mono" style={{ fontSize: 'var(--fs-12)', color: 'var(--c-ink-3)' }}>{skill.dir}</div>
           {skill.description && <p style={{ color: 'var(--c-ink-2)' }}>{skill.description}</p>}
