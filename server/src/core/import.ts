@@ -46,10 +46,14 @@ export function importDirs(cfg: ConfigStore, sourceDirs: string[], repoId?: stri
     fs.mkdirSync(skillsRoot, { recursive: true });
     const found = scanDir(abs, 'import', 'nested');
     for (const s of found) {
+      // 解引用源软链：导入的是真实位置的内容，而非把链接本身复制进仓库
+      let srcReal: string;
+      try { srcReal = fs.realpathSync(s.dir); }
+      catch (e) { res.skipped.push(`${s.name}(源不可达: ${(e as Error).message})`); out.push(res); continue; }
       const dest = path.join(skillsRoot, s.name);
       if (fs.existsSync(dest)) { res.skipped.push(`${s.name}(已存在，去重跳过)`); continue; }
       try {
-        fs.cpSync(s.dir, dest, { recursive: true });
+        fs.cpSync(srcReal, dest, { recursive: true });
         // 来源追溯（IM-04）
         const meta = cfg.data.skillMeta[`${s.name}@${repo.id}`] ?? { tags: [] };
         meta.origin = abs;
